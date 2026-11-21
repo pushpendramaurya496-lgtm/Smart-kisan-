@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Chakki Smart AI",
+    "slug": "chakki-smart-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#00000000",
+      "translucent": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kisan.chakkismartai"
+    },
+    "android": {
+      "package": "com.kisan.chakkismartai",
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "VIBRATE"
+      ]
+    }
+  }
+}

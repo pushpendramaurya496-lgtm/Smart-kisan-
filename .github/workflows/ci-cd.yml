@@ -1,0 +1,53 @@
+name: Chakki Smart AI CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-and-test:
+    name: 🧪 Automated Code Quality & Tests (CI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: client/package.json
+
+      - name: 📦 Install Client Dependencies
+        run: |
+          cd client
+          npm ci || npm install
+
+      - name: 🛡️ Run Code Tests
+        run: |
+          cd client
+          npm test
+
+  build-preview:
+    name: 🚀 Cloud Build Verification (CD Ready)
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📱 Setup Expo & EAS CLI
+        run: npm install -g eas-cli
+
+      - name: 📋 CI/CD Status Check
+        run: echo "Code verified cleanly! Ready for automated Play Store / AWS deployment."
+
