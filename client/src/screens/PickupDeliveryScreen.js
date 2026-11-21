@@ -68,7 +68,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     if (tabId === 'home') navigation.navigate('Home');
     else if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
-    else if (tabId === 'settings') navigation.navigate('Profile');
+    else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
   // Instant filtering on Customer Name & Village (case-insensitive & lag-free)

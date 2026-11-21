@@ -149,6 +149,63 @@ const swaggerOptions = {
             },
           },
         },
+        SettingsResponse: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: '673d1234...' },
+                phone: { type: 'string', example: '9569735570' },
+                ownerName: { type: 'string', example: 'पुष्पेन्द्र मौर्य' },
+                chakkiName: { type: 'string', example: 'चक्की स्मार्ट AI' },
+                village: { type: 'string', example: 'रामपुर' },
+              },
+            },
+            millingRates: {
+              type: 'object',
+              properties: {
+                wheatPisaiPerKg: { type: 'number', example: 3.5 },
+                oilExtractionPerKg: { type: 'number', example: 15 },
+                masalaGrindingPerKg: { type: 'number', example: 20 },
+              },
+            },
+            voiceAudioSettings: {
+              type: 'object',
+              properties: {
+                voiceAlerts: { type: 'boolean', example: true },
+                speechRate: { type: 'number', example: 0.9 },
+                language: { type: 'string', example: 'hi' },
+              },
+            },
+            subscriptions: {
+              type: 'object',
+              properties: {
+                chakkiPremium: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'Not active' },
+                    plan: { type: 'string', example: 'Free Tier' },
+                  },
+                },
+                smsAlertsPackage: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'Active' },
+                    creditsRemaining: { type: 'number', example: 350 },
+                  },
+                },
+              },
+            },
+            appInfo: {
+              type: 'object',
+              properties: {
+                version: { type: 'string', example: '1.2.0' },
+                language: { type: 'string', example: 'English / हिन्दी' },
+              },
+            },
+          },
+        },
       },
     },
   },

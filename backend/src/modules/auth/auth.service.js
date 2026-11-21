@@ -290,6 +290,84 @@ class AuthService {
     }
     return user;
   }
+
+  /**
+   * 8. Get Settings and Activity Configuration
+   */
+  static async getSettings(userId) {
+    const user = await User.findById(userId);
+    const ownerName = user?.profile?.ownerName || 'Pushpendra Maurya';
+    const chakkiName = user?.profile?.chakkiName || 'Chakki Smart AI Flour Mill';
+    const village = user?.profile?.village || 'Rampur';
+
+    return {
+      user: {
+        id: user?._id || userId,
+        phone: user?.phone || '9569735570',
+        ownerName,
+        chakkiName,
+        village,
+        profileImage: user?.profile?.profileImage || '',
+      },
+      millingRates: {
+        wheatPisaiPerKg: user?.defaultRates?.wheatPisaiPerKg || 3.5,
+        oilExtractionPerKg: user?.defaultRates?.oilExtractionPerKg || 15,
+        masalaGrindingPerKg: user?.defaultRates?.masalaGrindingPerKg || 20,
+      },
+      voiceAudioSettings: {
+        voiceAlerts: true,
+        speechRate: 0.9,
+        language: 'hi',
+      },
+      security: {
+        hasMpin: !!user?.mpin,
+        biometricEnabled: false,
+      },
+      subscriptions: {
+        chakkiPremium: {
+          status: 'Not active',
+          plan: 'Free Plan',
+          benefits: ['Basic records', 'Voice assistant', 'Thermal receipt'],
+        },
+        smsAlertsPackage: {
+          status: 'Active',
+          creditsRemaining: 350,
+          plan: 'Smart SMS Pack',
+        },
+      },
+      appInfo: {
+        appName: 'Chakki Smart AI',
+        version: '1.2.0',
+        language: 'English / हिन्दी',
+      },
+    };
+  }
+
+  /**
+   * 9. Update Settings
+   */
+  static async updateSettings(userId, payload) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('उपयोगकर्ता नहीं मिला');
+    }
+
+    if (payload.millingRates) {
+      user.defaultRates = {
+        ...(user.defaultRates || {}),
+        ...payload.millingRates,
+      };
+    }
+    if (payload.ownerName && user.profile) {
+      user.profile.ownerName = payload.ownerName;
+    }
+    if (payload.chakkiName && user.profile) {
+      user.profile.chakkiName = payload.chakkiName;
+    }
+
+    await user.save();
+    return this.getSettings(userId);
+  }
 }
 
 module.exports = AuthService;

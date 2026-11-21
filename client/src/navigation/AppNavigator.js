@@ -14,6 +14,7 @@ import { BillPrintScreen } from '../screens/BillPrintScreen';
 import { NewEntryScreen } from '../screens/NewEntryScreen';
 import { PickupDeliveryScreen } from '../screens/PickupDeliveryScreen';
 import { CustomerDashboardScreen } from '../screens/CustomerDashboardScreen';
+import { SettingsActivityScreen } from '../screens/SettingsActivityScreen';
 
 export const AppNavigator = () => {
   // App starts on the GetStarted Welcome Screen as requested
@@ -74,6 +75,9 @@ export const AppNavigator = () => {
         return <PickupDeliveryScreen navigation={navigation} route={{ params: current.params }} />;
       case 'CustomerDashboard':
         return <CustomerDashboardScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'Settings':
+      case 'SettingsActivity':
+        return <SettingsActivityScreen navigation={navigation} route={{ params: current.params }} />;
       case 'Home':
       default:
         return <HomeScreen navigation={navigation} route={{ params: current.params }} />;

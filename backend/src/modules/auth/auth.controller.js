@@ -103,6 +103,32 @@ const getMe = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, 200, user, 'यूजर प्रोफाइल लोड हुई');
 });
 
+/**
+ * 8. Get Settings and Activity Data
+ * GET /api/v1/auth/settings
+ */
+const getSettings = asyncHandler(async (req, res) => {
+  const settings = await AuthService.getSettings(req.user._id);
+  return ApiResponse.success(res, 200, settings, 'सेटिंग्स और गतिविधि डेटा लोड हुआ');
+});
+
+/**
+ * 9. Update Settings
+ * PUT /api/v1/auth/settings
+ */
+const updateSettings = asyncHandler(async (req, res) => {
+  const updated = await AuthService.updateSettings(req.user._id, req.body || {});
+  return ApiResponse.success(res, 200, updated, 'सेटिंग्स सफलतापूर्वक अपडेट हुई');
+});
+
+/**
+ * 10. Logout User
+ * POST /api/v1/auth/logout
+ */
+const logoutUser = asyncHandler(async (req, res) => {
+  return ApiResponse.success(res, 200, { loggedOut: true }, 'सफलतापूर्वक लॉगआउट हुआ');
+});
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -111,4 +137,7 @@ module.exports = {
   loginWithPIN,
   resetPIN,
   getMe,
+  getSettings,
+  updateSettings,
+  logoutUser,
 };

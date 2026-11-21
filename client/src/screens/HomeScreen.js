@@ -29,7 +29,7 @@ export const HomeScreen = ({ navigation }) => {
   const handleTabPress = (tabId) => {
     if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
-    else if (tabId === 'settings') navigation.navigate('Profile');
+    else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
   return (

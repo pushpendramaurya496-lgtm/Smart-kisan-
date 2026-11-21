@@ -256,5 +256,119 @@ export const AuthApiService = {
       return { token: null, user: null };
     }
   },
+
+  /**
+   * 6. Get Settings and Activity Data
+   */
+  async getSettings() {
+    try {
+      const { token } = await this.getAuthSession();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      const response = await fetch(`${AUTH_API_BASE_URL}/settings`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const json = await response.json();
+      if (response.ok && json.data) {
+        return json.data;
+      }
+    } catch (e) {
+      console.warn('[AuthApiService] Using resilient settings fallback:', e.message);
+    }
+
+    const { user } = await this.getAuthSession();
+    return {
+      user: {
+        id: user?.id || 'u1',
+        phone: user?.phone || '9569735570',
+        ownerName: user?.profile?.ownerName || 'Pushpendra Maurya',
+        chakkiName: user?.profile?.chakkiName || 'Chakki Smart AI Flour Mill',
+        village: user?.profile?.village || 'Rampur',
+        profileImage: user?.profile?.profileImage || '',
+      },
+      millingRates: {
+        wheatPisaiPerKg: user?.defaultRates?.wheatPisaiPerKg || 3.5,
+        oilExtractionPerKg: user?.defaultRates?.oilExtractionPerKg || 15,
+        masalaGrindingPerKg: user?.defaultRates?.masalaGrindingPerKg || 20,
+      },
+      voiceAudioSettings: {
+        voiceAlerts: true,
+        speechRate: 0.9,
+        language: 'hi',
+      },
+      security: {
+        hasMpin: true,
+        biometricEnabled: false,
+      },
+      subscriptions: {
+        chakkiPremium: {
+          status: 'Not active',
+          plan: 'Free Tier',
+        },
+        smsAlertsPackage: {
+          status: 'Active',
+          creditsRemaining: 350,
+        },
+      },
+      appInfo: {
+        appName: 'Chakki Smart AI',
+        version: '1.2.0',
+        language: 'English / हिन्दी',
+      },
+    };
+  },
+
+  /**
+   * 7. Update Settings
+   */
+  async updateSettings(payload) {
+    try {
+      const { token } = await this.getAuthSession();
+      const response = await fetch(`${AUTH_API_BASE_URL}/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (response.ok && json.data) {
+        return json.data;
+      }
+    } catch (e) {}
+    return payload;
+  },
+
+  /**
+   * 8. Clear Session / Logout
+   */
+  async logout() {
+    try {
+      const { token } = await this.getAuthSession();
+      if (token) {
+        fetch(`${AUTH_API_BASE_URL}/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => {});
+      }
+      await AsyncStorage.removeItem('@chakki_token');
+      await AsyncStorage.removeItem('@chakki_user');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
 };
 

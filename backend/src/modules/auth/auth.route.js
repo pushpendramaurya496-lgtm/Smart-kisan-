@@ -8,6 +8,9 @@ const {
   loginWithPIN,
   resetPIN,
   getMe,
+  getSettings,
+  updateSettings,
+  logoutUser,
 } = require('./auth.controller');
 const { protect } = require('./auth.middleware');
 
@@ -251,5 +254,64 @@ router.post('/reset-pin', resetPIN);
  *         description: अनधिकृत
  */
 router.get('/me', protect, getMe);
+
+/**
+ * @swagger
+ * /auth/settings:
+ *   get:
+ *     summary: 6. सेटिंग्स और गतिविधि कॉन्फ़िगरेशन प्राप्त करें (Settings and Activity)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: सेटिंग्स और सब्सक्रिप्शन विवरण
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SettingsResponse'
+ *       401:
+ *         description: अनधिकृत
+ *   put:
+ *     summary: 7. सेटिंग्स अपडेट करें (Update Milling Rates & Profile)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               ownerName:
+ *                 type: string
+ *                 example: "पुष्पेन्द्र मौर्य"
+ *               chakkiName:
+ *                 type: string
+ *                 example: "श्री गणेश आटा चक्की"
+ *               millingRates:
+ *                 type: object
+ *                 properties:
+ *                   wheatPisaiPerKg: { type: number, example: 3.5 }
+ *                   oilExtractionPerKg: { type: number, example: 15 }
+ *                   masalaGrindingPerKg: { type: number, example: 20 }
+ *     responses:
+ *       200:
+ *         description: सेटिंग्स सफलतापूर्वक अपडेट हुई
+ *
+ * /auth/logout:
+ *   post:
+ *     summary: 8. चक्की मालिक अकाउंट लॉगआउट करें (Logout)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: सफलतापूर्वक लॉगआउट हुआ
+ */
+router.get('/settings', protect, getSettings);
+router.put('/settings', protect, updateSettings);
+router.post('/logout', protect, logoutUser);
 
 module.exports = router;

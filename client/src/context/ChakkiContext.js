@@ -164,6 +164,16 @@ export const ChakkiProvider = ({ children }) => {
     }
   };
 
+  // Logout user and clear local session
+  const logoutUser = async () => {
+    try {
+      await AuthApiService.logout();
+      setCurrentUser(null);
+    } catch (e) {
+      console.warn('Logout error in context:', e);
+    }
+  };
+
   return (
     <ChakkiContext.Provider
       value={{
@@ -171,6 +181,7 @@ export const ChakkiProvider = ({ children }) => {
         setLanguage,
         currentUser,
         setCurrentUser,
+        logoutUser,
         t,
         stats,
         customers,
