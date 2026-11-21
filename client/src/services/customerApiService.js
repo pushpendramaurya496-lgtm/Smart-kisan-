@@ -42,62 +42,106 @@ export const CustomerApiService = {
       customerFallback ||
       customers[0];
 
-    const pending = found?.pendingBalance !== undefined ? found.pendingBalance : 1250;
-    const history = (found?.history && found.history.length > 0)
-      ? found.history.map((h, i) => ({
-          id: h.id || `h_${i}`,
-          date: h.date || '20-11-2026',
-          tokenNumber: h.tokenNumber || `#${24 - i * 6}`,
-          itemLabel: h.item || 'गेहूं (पिसाई)',
-          weightKg: h.weight || found.weightKg || 25,
-          ratePerKg: h.rate || 4,
-          totalAmount: h.total || (h.weight || 25) * (h.rate || 4),
-          amountPaid: h.status === 'चुकाया' ? (h.total || 100) : 0,
-          pendingAmount: h.status === 'चुकाया' ? 0 : (h.total || 100),
-          paymentStatus: h.status || (pending > 0 ? 'बाकी' : 'चुकाया'),
-          isDelivered: true,
-        }))
-      : [
-          {
-            id: 'h1',
-            date: '20-11-2026',
-            tokenNumber: '#24',
-            itemLabel: 'गेहूं (पिसाई)',
-            weightKg: found?.weightKg || 25,
-            ratePerKg: 4,
-            totalAmount: (found?.weightKg || 25) * 4,
-            amountPaid: pending > 0 ? 0 : (found?.weightKg || 25) * 4,
-            pendingAmount: pending > 0 ? (found?.weightKg || 25) * 4 : 0,
-            paymentStatus: pending > 0 ? 'बाकी' : 'चुकाया',
+    const pending = found?.pendingBalance !== undefined ? found.pendingBalance : 100;
+
+    // 6 Realistic Dummy History Records
+    const defaultSixRecords = [
+      {
+        id: 'h1',
+        date: '20-11-2026',
+        tokenNumber: '#24',
+        itemLabel: 'गेहूं (पिसाई)',
+        weightKg: found?.weightKg || 25,
+        ratePerKg: 4,
+        totalAmount: (found?.weightKg || 25) * 4,
+        amountPaid: pending > 0 ? 0 : (found?.weightKg || 25) * 4,
+        pendingAmount: pending > 0 ? (found?.weightKg || 25) * 4 : 0,
+        paymentStatus: pending > 0 ? 'बाकी' : 'चुकाया',
+        isDelivered: true,
+      },
+      {
+        id: 'h2',
+        date: '18-11-2026',
+        tokenNumber: '#19',
+        itemLabel: 'सरसों (तेल पिराई)',
+        weightKg: 15,
+        ratePerKg: 15,
+        totalAmount: 225,
+        amountPaid: pending > 100 ? 0 : 225,
+        pendingAmount: pending > 100 ? 225 : 0,
+        paymentStatus: pending > 100 ? 'बाकी' : 'चुकाया',
+        isDelivered: true,
+      },
+      {
+        id: 'h3',
+        date: '12-11-2026',
+        tokenNumber: '#14',
+        itemLabel: 'गेहूं (पिसाई)',
+        weightKg: 40,
+        ratePerKg: 3.5,
+        totalAmount: 140,
+        amountPaid: 140,
+        pendingAmount: 0,
+        paymentStatus: 'चुकाया',
+        isDelivered: true,
+      },
+      {
+        id: 'h4',
+        date: '05-11-2026',
+        tokenNumber: '#09',
+        itemLabel: 'मक्का (दलिया/पिसाई)',
+        weightKg: 20,
+        ratePerKg: 4,
+        totalAmount: 80,
+        amountPaid: 80,
+        pendingAmount: 0,
+        paymentStatus: 'चुकाया',
+        isDelivered: true,
+      },
+      {
+        id: 'h5',
+        date: '28-10-2026',
+        tokenNumber: '#04',
+        itemLabel: 'चना (दाल पिसाई)',
+        weightKg: 15,
+        ratePerKg: 5,
+        totalAmount: 75,
+        amountPaid: 75,
+        pendingAmount: 0,
+        paymentStatus: 'चुकाया',
+        isDelivered: true,
+      },
+      {
+        id: 'h6',
+        date: '20-10-2026',
+        tokenNumber: '#01',
+        itemLabel: 'गेहूं (पिसाई)',
+        weightKg: 50,
+        ratePerKg: 3.5,
+        totalAmount: 175,
+        amountPaid: 175,
+        pendingAmount: 0,
+        paymentStatus: 'चुकाया',
+        isDelivered: true,
+      },
+    ];
+
+    const history =
+      found?.history && found.history.length >= 5
+        ? found.history.map((h, i) => ({
+            id: h.id || `h_${i}`,
+            date: h.date || '20-11-2026',
+            tokenNumber: h.tokenNumber || `#${24 - i * 4}`,
+            itemLabel: h.item || 'गेहूं (पिसाई)',
+            weightKg: h.weight || found.weightKg || 25,
+            ratePerKg: h.rate || 4,
+            totalAmount: h.total || (h.weight || 25) * (h.rate || 4),
+            amountPaid: h.status === 'चुकाया' ? (h.total || 100) : 0,
+            pendingAmount: h.status === 'चुकाया' ? 0 : (h.total || 100),
+            paymentStatus: h.status || (pending > 0 ? 'बाकी' : 'चुकाया'),
             isDelivered: true,
-          },
-          {
-            id: 'h2',
-            date: '15-11-2026',
-            tokenNumber: '#18',
-            itemLabel: 'सरसों (तेल पिराई)',
-            weightKg: 10,
-            ratePerKg: 20,
-            totalAmount: 200,
-            amountPaid: 0,
-            pendingAmount: 200,
-            paymentStatus: 'बाकी',
-            isDelivered: true,
-          },
-          {
-            id: 'h3',
-            date: '08-11-2026',
-            tokenNumber: '#09',
-            itemLabel: 'गेहूं (पिसाई)',
-            weightKg: 40,
-            ratePerKg: 3.5,
-            totalAmount: 140,
-            amountPaid: 140,
-            pendingAmount: 0,
-            paymentStatus: 'चुकाया',
-            isDelivered: true,
-          },
-        ];
+          }))
+        : defaultSixRecords;
 
     const totalWeight = history.reduce((sum, h) => sum + (h.weightKg || 0), 0);
     const totalBilled = history.reduce((sum, h) => sum + (h.totalAmount || 0), 0);

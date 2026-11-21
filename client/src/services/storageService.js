@@ -24,7 +24,12 @@ const INITIAL_CUSTOMERS = [
     totalPisaiKg: 25,
     pendingBalance: 100,
     history: [
-      { id: 'h1', date: '20-11-2026', item: 'गेहूं (पिसाई)', weight: 25, rate: 4, total: 100, status: 'बाकी' },
+      { id: 'h1', date: '20-11-2026', tokenNumber: '#24', item: 'गेहूं (पिसाई)', weight: 25, rate: 4, total: 100, status: 'बाकी' },
+      { id: 'h2', date: '18-11-2026', tokenNumber: '#19', item: 'सरसों (तेल पिराई)', weight: 15, rate: 15, total: 225, status: 'चुकाया' },
+      { id: 'h3', date: '12-11-2026', tokenNumber: '#14', item: 'गेहूं (पिसाई)', weight: 40, rate: 3.5, total: 140, status: 'चुकाया' },
+      { id: 'h4', date: '05-11-2026', tokenNumber: '#09', item: 'मक्का (दलिया/पिसाई)', weight: 20, rate: 4, total: 80, status: 'चुकाया' },
+      { id: 'h5', date: '28-10-2026', tokenNumber: '#04', item: 'चना (दाल पिसाई)', weight: 15, rate: 5, total: 75, status: 'चुकाया' },
+      { id: 'h6', date: '20-10-2026', tokenNumber: '#01', item: 'गेहूं (पिसाई)', weight: 50, rate: 3.5, total: 175, status: 'चुकाया' },
     ],
   },
   {

@@ -318,35 +318,7 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
             )}
           </View>
 
-          {/* 4. THREE MINI STATS CARDS */}
-          <View style={styles.miniStatsRow}>
-            {/* Card 1: Total Milling Weight */}
-            <View style={styles.miniStatCard}>
-              <Text style={styles.miniStatEmoji}>🌾</Text>
-              <Text style={styles.miniStatLabel}>कुल पिसाई</Text>
-              <Text style={styles.miniStatVal}>
-                {summary.totalWeightMilledKg || 75} kg
-              </Text>
-            </View>
-
-            {/* Card 2: Total Billed */}
-            <View style={styles.miniStatCard}>
-              <Text style={styles.miniStatEmoji}>🧾</Text>
-              <Text style={styles.miniStatLabel}>कुल बिल</Text>
-              <Text style={styles.miniStatVal}>₹{summary.totalBilled || 540}</Text>
-            </View>
-
-            {/* Card 3: Total Paid */}
-            <View style={styles.miniStatCard}>
-              <Text style={styles.miniStatEmoji}>💵</Text>
-              <Text style={styles.miniStatLabel}>कुल जमा</Text>
-              <Text style={[styles.miniStatVal, { color: '#15803D' }]}>
-                ₹{summary.totalPaid || 470}
-              </Text>
-            </View>
-          </View>
-
-          {/* 5. PREVIOUS HISTORY RECORDS (पिछला सम्पूर्ण रिकॉर्ड व इतिहास) */}
+          {/* 4. PREVIOUS HISTORY RECORDS (पिछला सम्पूर्ण रिकॉर्ड व इतिहास) */}
           <View style={styles.historySectionHeader}>
             <View style={styles.historyHeaderTitleRow}>
               <Text style={styles.historySectionIcon}>📋</Text>
@@ -444,22 +416,7 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
             </View>
           )}
 
-          {/* Quick New Entry Button */}
-          <TouchableOpacity
-            style={styles.newEntryForCustomerBtn}
-            onPress={() =>
-              navigation.navigate('NewEntry', {
-                prefillName: customer.name,
-                prefillVillage: customer.village,
-                prefillPhone: customer.phone,
-              })
-            }
-            activeOpacity={0.88}
-          >
-            <Text style={styles.newEntryBtnText}>+ इस ग्राहक की नई पिसाई दर्ज करें</Text>
-          </TouchableOpacity>
-
-          <View style={{ height: 32 }} />
+          <View style={{ height: 40 }} />
         </ScrollView>
       )}
 
