@@ -194,6 +194,7 @@ const RupeeNoteOutlineIcon = ({ size = 24, color = '#111827' }) => (
     </View>
   </View>
 );
+const RupeeNoteIcon = RupeeNoteOutlineIcon;
 
 // 6. Star Badge Outline Icon (⭐ / rosette)
 const StarBadgeOutlineIcon = ({ size = 24, color = '#111827' }) => (
@@ -443,7 +444,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
       id: 'khata',
       section: 'milling',
       title: 'Transactions & khata',
-      icon: RupeeNoteIcon,
+      icon: RupeeNoteOutlineIcon,
       action: () => navigation.navigate('GrahakKhata'),
       keywords: 'transactions khata balance ledger bahikhata payment udhari hisaab',
     },
@@ -1481,3 +1482,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+
