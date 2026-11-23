@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { StatWheat, StatUsers, StatRupee, StatGear } from './illustrations/AppIllustrations';
 
-export const StatGrid = ({ stats = {} }) => {
+export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPress, onPendingBalancePress }) => {
   const pisaiKg = stats.todayPisaiKg || 210;
   const customers = stats.totalCustomers || 48;
   const pendingFormatted = Number(stats.pendingDebt || 1250).toLocaleString('en-IN');
@@ -11,7 +11,13 @@ export const StatGrid = ({ stats = {} }) => {
   return (
     <View style={styles.grid}>
       {/* CARD 1: Today's Milling (Wheat) -> Value Color: Dark Green */}
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={onTodayMillingPress}
+        style={styles.card}
+        accessibilityRole="button"
+        accessibilityLabel="Today's Milling"
+      >
         <View style={styles.iconContainer}>
           <StatWheat size={38} />
         </View>
@@ -19,10 +25,16 @@ export const StatGrid = ({ stats = {} }) => {
           <Text style={styles.label}>Today's Milling</Text>
           <Text style={[styles.value, styles.greenValue]}>{pisaiKg} kg</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* CARD 2: Total Customers (Blue Avatars) -> Value Color: Dark Navy */}
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={onTotalCustomersPress}
+        style={styles.card}
+        accessibilityRole="button"
+        accessibilityLabel="Total Customers"
+      >
         <View style={styles.iconContainer}>
           <StatUsers size={38} />
         </View>
@@ -30,10 +42,16 @@ export const StatGrid = ({ stats = {} }) => {
           <Text style={styles.label}>Total Customers</Text>
           <Text style={[styles.value, styles.navyValue]}>{customers}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* CARD 3: Pending Balance (Rupee Coin + Red Warning) -> Value Color: Red */}
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={onPendingBalancePress}
+        style={styles.card}
+        accessibilityRole="button"
+        accessibilityLabel="Pending Balance"
+      >
         <View style={styles.iconContainer}>
           <StatRupee size={38} />
         </View>
@@ -41,7 +59,7 @@ export const StatGrid = ({ stats = {} }) => {
           <Text style={styles.label}>Pending Balance</Text>
           <Text style={[styles.value, styles.redValue]}>₹ {pendingFormatted}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* CARD 4: Total Expense (Blue Gear) -> Value Color: Dark Navy */}
       <View style={styles.card}>

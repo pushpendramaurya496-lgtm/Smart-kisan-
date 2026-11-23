@@ -6,7 +6,7 @@ import { TopHeader } from '../components/TopHeader';
 import { ChakkiHeaderCard } from '../components/ChakkiHeaderCard';
 import { HeroEarningsCard } from '../components/HeroEarningsCard';
 import { StatGrid } from '../components/StatCard';
-import { VoiceWaveformButton } from '../components/VoiceWaveformButton';
+import { ChakkiPromoBanner } from '../components/ChakkiPromoBanner';
 import { ServiceGrid } from '../components/ServiceTile';
 import { BottomDock } from '../components/BottomDock';
 import { useChakki } from '../context/ChakkiContext';
@@ -39,13 +39,15 @@ export const HomeScreen = ({ navigation }) => {
 
       {/* Main Screen Layout on Clean #F2F6FC Background */}
       <View style={[styles.mainWrapper, { paddingTop: topSafePadding }]}>
+        {/* 1. Fixed / Sticky Header: Kisan Sathi title, logo, bell & profile (stays fixed when scrolling) */}
+        <View style={styles.fixedHeaderContainer}>
+          <TopHeader onProfilePress={() => navigation.navigate('Profile')} />
+        </View>
+
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 1. Header Section: Leaf logo + Title + Bell dot + Profile avatar */}
-          <TopHeader onProfilePress={() => navigation.navigate('Profile')} />
-
           {/* 2. Chakki Smart AI Card with Wheat Medallion & Crown Premium badge */}
           <ChakkiHeaderCard
             onPremiumPress={() => navigation.navigate('BillPrint', { customerId: 'c1' })}
@@ -55,7 +57,7 @@ export const HomeScreen = ({ navigation }) => {
           <HeroEarningsCard
             earnings={stats?.todayEarnings || 2850}
             growthPercent={stats?.growthPercent || 12}
-            onPress={() => navigation.navigate('BillPrint', { customerId: 'c1' })}
+            onPress={() => navigation.navigate('EarningsDashboard')}
           />
 
           {/* 4. Main Action Buttons: 1. + नई पिसाई (Dark Green) | 2. माल लेने आए (Orange) */}
@@ -92,11 +94,17 @@ export const HomeScreen = ({ navigation }) => {
           </View>
 
           {/* 5. Statistics Cards (4 Cards in 2x2 Grid) */}
-          <StatGrid stats={stats} />
+          <StatGrid
+            stats={stats}
+            onTodayMillingPress={() => navigation.navigate('TodayMilling')}
+            onTotalCustomersPress={() => navigation.navigate('TotalCustomer')}
+            onPendingBalancePress={() => navigation.navigate('PendingBalance')}
+          />
 
-          {/* 6. Voice Assistant Section: 3D Robot + Sound Waves + Center Mic */}
-          <VoiceWaveformButton
-            onPress={() => navigation.navigate('VoiceAssistant')}
+          {/* 6. Promotional Banner: 16:9 Auto-scrolling Dual Promotional Banner */}
+          <ChakkiPromoBanner
+            onPressRate={() => navigation.navigate('Settings')}
+            onPressDelivery={() => navigation.navigate('PickupDelivery')}
           />
 
           {/* 7. Business Category Cards: Flour, Oil, Spices, Stock (2x2 Grid) */}
@@ -120,6 +128,11 @@ const styles = StyleSheet.create({
   },
   mainWrapper: {
     flex: 1,
+  },
+  fixedHeaderContainer: {
+    paddingHorizontal: 16,
+    backgroundColor: '#F2F6FC',
+    zIndex: 20,
   },
   scrollContent: {
     paddingHorizontal: 16,

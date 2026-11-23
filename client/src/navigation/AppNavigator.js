@@ -15,6 +15,10 @@ import { NewEntryScreen } from '../screens/NewEntryScreen';
 import { PickupDeliveryScreen } from '../screens/PickupDeliveryScreen';
 import { CustomerDashboardScreen } from '../screens/CustomerDashboardScreen';
 import { SettingsActivityScreen } from '../screens/SettingsActivityScreen';
+import { EarningsDashboardScreen } from '../screens/EarningsDashboardScreen';
+import { TodayMillingDashboardScreen } from '../screens/TodayMillingDashboardScreen';
+import { TotalCustomerDashboardScreen } from '../screens/TotalCustomerDashboardScreen';
+import { PendingBalanceDashboardScreen } from '../screens/PendingBalanceDashboardScreen';
 
 export const AppNavigator = () => {
   // App starts on the GetStarted Welcome Screen as requested
@@ -78,6 +82,18 @@ export const AppNavigator = () => {
       case 'Settings':
       case 'SettingsActivity':
         return <SettingsActivityScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'EarningsDashboard':
+        return <EarningsDashboardScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'TodayMilling':
+      case 'TodayMillingDashboard':
+        return <TodayMillingDashboardScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'TotalCustomer':
+      case 'TotalCustomerDashboard':
+        return <TotalCustomerDashboardScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'PendingBalance':
+      case 'BakiHisab':
+      case 'PendingBalanceDashboard':
+        return <PendingBalanceDashboardScreen navigation={navigation} route={{ params: current.params }} />;
       case 'Home':
       default:
         return <HomeScreen navigation={navigation} route={{ params: current.params }} />;
