@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -503,7 +503,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
   ];
 
   // Search filter
-  const filteredItems = useMemo(() => {
+  const filteredItems = (() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return allMenuItems;
     return allMenuItems.filter(
@@ -512,7 +512,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
         (item.subtitle && item.subtitle.toLowerCase().includes(q)) ||
         item.keywords.includes(q)
     );
-  }, [searchQuery, allMenuItems]);
+  })();
 
   // Handle Share App
   const handleShareApp = async () => {

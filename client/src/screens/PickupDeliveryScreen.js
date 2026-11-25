@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   FlatList,
   StyleSheet,
   Modal,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -15,6 +16,10 @@ import * as Haptics from 'expo-haptics';
 import { BottomDock } from '../components/BottomDock';
 import { useChakki } from '../context/ChakkiContext';
 import { SpeechService } from '../services/speechService';
+import { DashboardApiService } from '../services/dashboardApiService';
+import { StorageService } from '../services/storageService';
+import { EntryApiService } from '../services/entryApiService';
+import { getCustomerTimestamp, formatArrivalTime } from '../utils/customerTimestampHelper';
 
 // Traditional Stone Chakki + Wheat Stalk Logo Component
 const ChakkiLogo = () => (
@@ -35,18 +40,331 @@ const ChakkiLogo = () => (
   </View>
 );
 
+// Clean number format to eliminate ugly floating-point tails
+const formatCleanNum = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const num = Math.round(Number(val) * 100) / 100;
+  return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+};
+
+// Clean text and remove trailing dots or special characters (e.g. "Yes." -> "yes")
+const normalizeString = (str) => {
+  if (!str) return '';
+  return str
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, ' ');
+};
+
+// Canonical deduplication key: matches on 10-digit phone OR normalized (name + village)
+const getCustomerDedupKey = (c) => {
+  if (!c) return '';
+  const cleanPhone = (c.phone || '').toString().replace(/\D/g, '');
+  if (cleanPhone.length >= 10) {
+    return `ph_${cleanPhone.slice(-10)}`;
+  }
+  const cleanName = normalizeString(c.name || c.customerName);
+  const rawVillage = normalizeString(c.village);
+  const cleanVillage = rawVillage.replace(/^(ग्राम|गाँव|village)\s*/i, '').trim();
+
+  if (cleanName) {
+    const v = (!cleanVillage || cleanVillage === 'ग्राम' || cleanVillage === 'गांव') ? 'default' : cleanVillage;
+    return `cust_${cleanName}_${v}`;
+  }
+  return `id_${String(c.id || c.customerId || c._id || '')}`;
+};
+
+// Detect milling/crop type: तेल, आटा, दर्रा, मसाला
+const getCropDisplay = (customer) => {
+  const itemStr = (
+    customer.lastMilledItem ||
+    customer.lastItemMilled ||
+    customer.category ||
+    customer.itemType ||
+    (customer.history && customer.history[0]?.item) ||
+    ''
+  ).toString().toLowerCase();
+
+  if (itemStr.includes('तेल') || itemStr.includes('सरसों') || itemStr.includes('oil') || itemStr.includes('mustard')) {
+    return {
+      label: 'सरसों (तेल पिराई)',
+      icon: '🌻',
+      bg: '#FFFBEB',
+      border: '#FDE68A',
+      color: '#B45309',
+      badgeBg: '#FEF3C7',
+    };
+  }
+  if (itemStr.includes('मसाला') || itemStr.includes('मिर्च') || itemStr.includes('हल्दी') || itemStr.includes('masala') || itemStr.includes('haldi')) {
+    return {
+      label: 'मसाला (कुटाई)',
+      icon: '🌶️',
+      bg: '#FEF2F2',
+      border: '#FECACA',
+      color: '#B91C1C',
+      badgeBg: '#FEE2E2',
+    };
+  }
+  if (itemStr.includes('दर्रा') || itemStr.includes('दलिया') || itemStr.includes('मक्का') || itemStr.includes('darra')) {
+    return {
+      label: 'दर्रा / दलिया पिसाई',
+      icon: '🌽',
+      bg: '#FAF5FF',
+      border: '#E9D5FF',
+      color: '#7E22CE',
+      badgeBg: '#F3E8FF',
+    };
+  }
+  return {
+    label: 'गेहूं (आटा पिसाई)',
+    icon: '🌾',
+    bg: '#F0FDF4',
+    border: '#BBF7D0',
+    color: '#15803D',
+    badgeBg: '#DCFCE7',
+  };
+};
+
 export const PickupDeliveryScreen = ({ navigation }) => {
-  const { stats, customers } = useChakki();
+  const { stats, customers: contextCustomers, refreshStats, markOrderDelivered } = useChakki();
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
 
+  const getTodayHindiDate = () => {
+    const now = new Date();
+    return now.toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' });
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDate, setSelectedDate] = useState('20 नव');
+  const [selectedDate, setSelectedDate] = useState(getTodayHindiDate());
   const [showDateModal, setShowDateModal] = useState(false);
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'PAID'
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showVoiceSearchModal, setShowVoiceSearchModal] = useState(false);
   const [voiceQueryText, setVoiceQueryText] = useState('');
+  const [customerList, setCustomerList] = useState([]);
+  const [deliveredKeys, setDeliveredKeys] = useState(new Set());
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadRealCustomers = useCallback(async () => {
+    try {
+      // 0. Load delivered IDs to immediately filter out delivered customers
+      const deliveredList = await StorageService.getDeliveredIds();
+      const delSet = new Set((deliveredList || []).map((id) => normalizeString(id)));
+      setDeliveredKeys(delSet);
+
+      const isDelivered = (c) => {
+        if (!c) return true;
+        if (c.isDelivered) return true;
+        const id1 = normalizeString(c.id);
+        const id2 = normalizeString(c.customerId);
+        const id3 = normalizeString(c._id);
+        const name = normalizeString(c.name || c.customerName);
+        const dKey = getCustomerDedupKey(c);
+        return (
+          (id1 && delSet.has(id1)) ||
+          (id2 && delSet.has(id2)) ||
+          (id3 && delSet.has(id3)) ||
+          (name && delSet.has(name)) ||
+          (dKey && delSet.has(dKey))
+        );
+      };
+
+      // 1. Fetch from backend API
+      const apiData = await DashboardApiService.getCustomers('today');
+      const dedupMap = new Map();
+
+      if (apiData && Array.isArray(apiData.customers) && apiData.customers.length > 0) {
+        apiData.customers.forEach((c) => {
+          if (isDelivered(c)) return;
+          const key = getCustomerDedupKey(c);
+          if (key) {
+            dedupMap.set(key, c);
+          }
+        });
+      }
+
+      // 2. Also load from local storage (merge with backend, never duplicate)
+      const local = await StorageService.getCustomers();
+      if (Array.isArray(local) && local.length > 0) {
+        local.forEach((l) => {
+          if (isDelivered(l)) return;
+          const key = getCustomerDedupKey(l);
+          if (key) {
+            if (!dedupMap.has(key)) {
+              dedupMap.set(key, l);
+            } else {
+              // Merge: keep best properties
+              const existing = dedupMap.get(key);
+              dedupMap.set(key, {
+                ...l,
+                ...existing,
+                village: (existing.village && existing.village !== 'ग्राम') ? existing.village : (l.village || 'ग्राम'),
+                phone: existing.phone || l.phone || '',
+                weightKg: Math.max(Number(existing.weightKg) || 0, Number(l.weightKg) || 0),
+                totalPisaiKg: Math.max(Number(existing.totalPisaiKg) || 0, Number(l.totalPisaiKg) || 0),
+                pendingBalance: existing.pendingBalance !== undefined ? existing.pendingBalance : l.pendingBalance,
+              });
+            }
+          }
+        });
+      }
+
+      setCustomerList(Array.from(dedupMap.values()));
+    } catch (e) {
+      const deliveredList = await StorageService.getDeliveredIds();
+      const delSet = new Set((deliveredList || []).map((id) => normalizeString(id)));
+      setDeliveredKeys(delSet);
+      const local = await StorageService.getCustomers();
+      const dedupMap = new Map();
+      (local || []).forEach((l) => {
+        if (!l || l.isDelivered) return;
+        const id1 = normalizeString(l.id);
+        const name = normalizeString(l.name || l.customerName);
+        const dKey = getCustomerDedupKey(l);
+        if ((id1 && delSet.has(id1)) || (name && delSet.has(name)) || (dKey && delSet.has(dKey))) return;
+        if (dKey && !dedupMap.has(dKey)) {
+          dedupMap.set(dKey, l);
+        }
+      });
+      setCustomerList(Array.from(dedupMap.values()));
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRealCustomers();
+  }, [loadRealCustomers, contextCustomers]);
+
+  // Reload when screen gains focus after payment in CustomerDashboard
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener ? navigation.addListener('focus', () => {
+      loadRealCustomers();
+    }) : undefined;
+    return unsubscribe;
+  }, [navigation, loadRealCustomers]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadRealCustomers();
+    if (refreshStats) {
+      await refreshStats();
+    }
+    setRefreshing(false);
+  };
+
+  // Combine live context customers with API customer list (strictly deduplicated & excluding delivered)
+  const effectiveCustomerList = (() => {
+    const map = new Map();
+
+    const isCustomerDelivered = (c) => {
+      if (!c) return true;
+      if (c.isDelivered) return true;
+      const id1 = normalizeString(c.id);
+      const id2 = normalizeString(c.customerId);
+      const id3 = normalizeString(c._id);
+      const name = normalizeString(c.name || c.customerName);
+      const dKey = getCustomerDedupKey(c);
+      return (
+        (id1 && deliveredKeys.has(id1)) ||
+        (id2 && deliveredKeys.has(id2)) ||
+        (id3 && deliveredKeys.has(id3)) ||
+        (name && deliveredKeys.has(name)) ||
+        (dKey && deliveredKeys.has(dKey))
+      );
+    };
+
+    // 1. Add context customers (most recent live additions from NewEntryScreen)
+    (contextCustomers || []).forEach((c) => {
+      const displayName = c.name || c.customerName || '';
+      if (!displayName || isCustomerDelivered(c)) return;
+      const key = getCustomerDedupKey(c);
+      const last = (c.history && c.history[0]) || {};
+      const ts = getCustomerTimestamp(c);
+      const timeStr = formatArrivalTime(c) || last.date || 'आज';
+
+      map.set(key, {
+        id: c.id || c._id,
+        customerId: c.id || c._id,
+        name: displayName,
+        village: c.village || 'ग्राम',
+        phone: c.phone || '',
+        totalPisaiKg: c.totalPisaiKg || 0,
+        weightKg: c.lastMilledWeight || last.weight || last.weightKg || c.totalPisaiKg || 0,
+        pendingBalance: c.pendingBalance || 0,
+        isPending: (c.pendingBalance || 0) > 0,
+        lastMilledItem: c.lastItemMilled || last.itemLabel || last.item || 'गेहूं पिसाई',
+        timeStr,
+        history: c.history || [],
+        avatarBg: c.avatarBg,
+        avatarColor: c.avatarColor,
+        createdAt: c.createdAt,
+        timestamp: ts,
+        orderIndex: ts,
+      });
+    });
+
+    // 2. Merge backend API customers (deduplicated by getCustomerDedupKey)
+    (customerList || []).forEach((c) => {
+      const displayName = c.name || c.customerName || '';
+      if (!displayName || isCustomerDelivered(c)) return;
+      const key = getCustomerDedupKey(c);
+      const existing = map.get(key);
+      const ts = getCustomerTimestamp(c);
+      const timeStr = formatArrivalTime(c) || c.timeStr || 'आज';
+
+      if (!existing) {
+        map.set(key, {
+          id: c.id || c.customerId || c._id,
+          customerId: c.id || c.customerId || c._id,
+          name: displayName,
+          village: c.village || 'ग्राम',
+          phone: c.phone || '',
+          totalPisaiKg: c.totalPisaiKg || c.totalWeightKg || 0,
+          weightKg: c.weightKg || c.totalPisaiKg || (parseInt(c.weight) || 0),
+          pendingBalance: c.pendingBalance || 0,
+          isPending: (c.pendingBalance || 0) > 0 || c.isPending,
+          lastMilledItem: c.lastMilledItem || c.category || 'गेहूं पिसाई',
+          timeStr,
+          history: c.history || [],
+          avatarBg: c.avatarBg,
+          avatarColor: c.avatarColor,
+          createdAt: c.createdAt,
+          timestamp: ts,
+          orderIndex: ts,
+        });
+      } else {
+        const bestTs = Math.max(existing.timestamp || 0, ts || 0);
+        map.set(key, {
+          ...existing,
+          id: c.id || c.customerId || c._id || existing.id,
+          customerId: c.customerId || c.id || c._id || existing.customerId || existing.id,
+          name: displayName || existing.name,
+          village: (existing.village && existing.village !== 'ग्राम') ? existing.village : (c.village || 'ग्राम'),
+          phone: existing.phone || c.phone || '',
+          pendingBalance: c.pendingBalance !== undefined ? c.pendingBalance : existing.pendingBalance,
+          weightKg: existing.weightKg || c.weightKg || (parseInt(c.weight) || 0),
+          lastMilledItem: existing.lastMilledItem || c.lastMilledItem || c.category || 'गेहूं पिसाई',
+          timeStr: existing.timeStr || timeStr || 'आज',
+          timestamp: bestTs,
+          orderIndex: bestTs,
+        });
+      }
+    });
+
+    const result = Array.from(map.values());
+
+    // Sort by arrival sequence: latest / newest entries at the top
+    result.sort((a, b) => {
+      const timeA = a.timestamp || getCustomerTimestamp(a) || 0;
+      const timeB = b.timestamp || getCustomerTimestamp(b) || 0;
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+      return (b.orderIndex || 0) - (a.orderIndex || 0);
+    });
+
+    return result;
+  })();
 
   const handleApplyVoiceQuery = (queryToApply) => {
     const text = (queryToApply !== undefined ? queryToApply : voiceQueryText).trim();
@@ -68,28 +386,34 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     if (tabId === 'home') navigation.navigate('Home');
     else if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
-  // Instant filtering on Customer Name & Village (case-insensitive & lag-free)
-  const filteredCustomers = useMemo(() => {
+  // Instant filtering on Customer Name, Village & Phone (case-insensitive & lag-free)
+  const filteredCustomers = (() => {
     const query = searchQuery.trim().toLowerCase();
-    return (customers || []).filter((item) => {
-      // Name & Village text match
-      const nameMatch = (item.name || '').toLowerCase().includes(query);
-      const villageMatch = (item.village || '').toLowerCase().includes(query);
-      const matchesSearch = query === '' || nameMatch || villageMatch;
+    const rawPhone = searchQuery.trim().replace(/\D/g, '');
+    return effectiveCustomerList.filter((item) => {
+      const nameStr = (item.name || item.customerName || '').toLowerCase();
+      const villageStr = (item.village || '').toLowerCase();
+      const phoneStr = (item.phone || '').replace(/\D/g, '');
+
+      const matchesName = nameStr.includes(query);
+      const matchesVillage = villageStr.includes(query);
+      const matchesPhone = rawPhone.length >= 3 && phoneStr.includes(rawPhone);
+      const matchesSearch = query === '' || matchesName || matchesVillage || matchesPhone;
 
       // Filter status
       if (activeFilter === 'PENDING') {
-        return matchesSearch && (item.pendingBalance || 0) > 0;
+        return matchesSearch && ((item.pendingBalance || 0) > 0 || item.isPending);
       }
       if (activeFilter === 'PAID') {
-        return matchesSearch && (item.pendingBalance || 0) === 0;
+        return matchesSearch && ((item.pendingBalance || 0) === 0 && !item.isPending);
       }
       return matchesSearch;
     });
-  }, [customers, searchQuery, activeFilter]);
+  })();
 
   // Color generator for dynamic customers matching reference pastel scheme
   const getAvatarStyle = (item, index) => {
@@ -122,96 +446,197 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     return trimmed.length > 2 ? trimmed.substring(0, 2) : trimmed;
   };
 
-  // Action when customer name/card is tapped: Open Customer Dashboard
+  // Action when customer name/card is tapped: Open Customer Dashboard with payment option
   const handleCustomerPress = (customer) => {
     try {
       Haptics.selectionAsync();
     } catch (e) {}
     navigation.navigate('CustomerDashboard', {
-      customerId: customer.id,
+      customerId: customer.id || customer.customerId || customer._id,
       customer,
+      openPayModal: (customer.pendingBalance || 0) > 0,
     });
   };
 
-  // Complete Delivery action
-  const handleDeliverOrder = (customer) => {
+  // Complete Delivery action (Removes from Pickup Screen and pushes to Delivery History)
+  const handleDeliverOrder = async (customer) => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {}
+
+    const sId = String(customer.id || customer.customerId || customer._id || customer.name);
+    const custName = customer.name || customer.customerName || 'ग्राहक';
+
+    // 1. Mark in backend if connected
+    try {
+      await EntryApiService.deliverEntry(customer.id || customer.customerId || customer._id, {
+        amountPaid: customer.pendingBalance || 0,
+        paymentMethod: 'CASH',
+        notes: 'माल सुपुर्दगी दर्ज',
+      });
+    } catch (err) {}
+
+    // 2. Mark in Context & Local Storage
+    if (markOrderDelivered) {
+      await markOrderDelivered({
+        customerId: sId,
+        customerName: custName,
+        village: customer.village || '',
+        weightKg: customer.weightKg || customer.totalPisaiKg || 0,
+        itemLabel: customer.lastMilledItem || 'गेहूं पिसाई',
+        amountPaid: customer.pendingBalance || 0,
+        pendingAmount: 0,
+      });
+    } else {
+      await StorageService.markDelivered(sId, {
+        id: sId,
+        customerId: sId,
+        customerName: custName,
+        village: customer.village || '',
+        weightKg: customer.weightKg || customer.totalPisaiKg || 0,
+        itemLabel: customer.lastMilledItem || 'गेहूं पिसाई',
+        totalAmount: customer.pendingBalance || 0,
+        amountPaid: customer.pendingBalance || 0,
+        pendingAmount: 0,
+        isPaid: true,
+        status: 'ले जा चुके',
+        deliveryTimeStr: 'आज, ' + new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' }),
+      });
+    }
+
+    // 3. Immediately remove customer from Pickup screen (by sId, name, normName, and dedupKey)
+    const normName = normalizeString(custName);
+    const dedupKey = getCustomerDedupKey(customer);
+    setDeliveredKeys((prev) => new Set([...prev, sId, custName, normName, dedupKey]));
+    setCustomerList((prev) =>
+      prev.filter((c) => {
+        const cDedup = getCustomerDedupKey(c);
+        const cNorm = normalizeString(c.name || c.customerName);
+        const cId = String(c.id || c.customerId || c._id);
+        return cDedup !== dedupKey && cNorm !== normName && cId !== sId;
+      })
+    );
+
     setSelectedCustomer(null);
     setDeliverySuccessModal(customer);
-    SpeechService.speak(`${customer.name} का माल सुपुर्द कर दिया गया है।`);
+    SpeechService.speak(`${custName} का माल सुपुर्द कर दिया गया है।`);
   };
 
   // Render individual customer card
   const renderCustomerItem = ({ item: customer, index }) => {
     const avatarStyle = getAvatarStyle(customer, index);
-    const initials = customer.avatarText || getAvatarInitials(customer.name);
-    const weightVal = customer.weightKg || customer.totalPisaiKg || 25;
+    const displayName = customer.name || customer.customerName || 'अज्ञात ग्राहक';
+    const initials = customer.avatarText || getAvatarInitials(displayName);
+    const weightVal = customer.weightKg || customer.totalPisaiKg || (parseInt(customer.weight) || 0);
+    const crop = getCropDisplay(customer);
+    const hasPending = (customer.pendingBalance || 0) > 0;
 
     return (
       <TouchableOpacity
-        key={customer.id || `cust_${index}`}
+        key={customer.id || customer._id || `cust_${index}`}
         style={styles.customerCard}
         activeOpacity={0.82}
         onPress={() => handleCustomerPress(customer)}
       >
-        {/* Left: Circular Colored Avatar with Initials */}
-        <View
-          style={[
-            styles.avatarCircle,
-            { backgroundColor: avatarStyle.bg },
-          ]}
-        >
-          <Text
-            style={[
-              styles.avatarText,
-              { color: avatarStyle.color },
-            ]}
-          >
-            {initials}
-          </Text>
-        </View>
-
-        {/* Middle: Customer Name & Village with Red Location Pin */}
-        <View style={styles.customerMiddleCol}>
-          <Text style={styles.customerName} numberOfLines={1}>
-            {customer.name}
-          </Text>
-          <View style={styles.villageRow}>
-            <Text style={styles.pinIcon}>📍</Text>
-            <Text style={styles.villageText} numberOfLines={1}>
-              {customer.village || 'रामपुर'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Right: Weight Badge, Vertical Divider, Time & Chevron */}
-        <View style={styles.customerRightCol}>
-          {/* Weight Badge with Wheat Icon */}
+        {/* ROW 1: Avatar, Name (Full Width, Never Truncated), Village/Phone, Payment Pill & Chevron */}
+        <View style={styles.cardTopRow}>
+          {/* Circular Colored Avatar with Initials */}
           <View
             style={[
-              styles.weightBadge,
-              {
-                backgroundColor: avatarStyle.badgeBg,
-                borderColor: avatarStyle.badgeBorder,
-              },
+              styles.avatarCircle,
+              { backgroundColor: avatarStyle.bg },
             ]}
           >
-            <Text style={styles.weightWheatIcon}>🌾</Text>
-            <Text style={styles.weightText}>{weightVal} kg</Text>
+            <Text
+              style={[
+                styles.avatarText,
+                { color: avatarStyle.color },
+              ]}
+            >
+              {initials}
+            </Text>
           </View>
 
-          {/* Vertical Divider */}
-          <View style={styles.rowVerticalDivider} />
+          {/* Customer Name & Village (flex: 1 gives full space to show full name!) */}
+          <View style={styles.customerNameCol}>
+            <Text style={styles.customerName} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <View style={styles.villageRow}>
+              <Text style={styles.pinIcon}>📍</Text>
+              <Text style={styles.villageText} numberOfLines={1}>
+                {customer.village || 'ग्राम'}
+              </Text>
+              {customer.phone ? (
+                <Text style={styles.cardPhoneText} numberOfLines={1}>
+                  {'  '}📞 {customer.phone}
+                </Text>
+              ) : null}
+            </View>
+          </View>
 
-          {/* Entry Time String */}
-          <Text style={styles.timeText}>
-            {customer.timeStr || 'आज, 12:28 PM'}
-          </Text>
+          {/* Right: Payment Status Pill & Chevron */}
+          <View style={styles.statusAndChevronCol}>
+            <View
+              style={[
+                styles.paymentMiniPill,
+                hasPending ? styles.paymentMiniPillRed : styles.paymentMiniPillGreen,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.paymentMiniText,
+                  hasPending ? styles.paymentTextRed : styles.paymentTextGreen,
+                ]}
+              >
+                {hasPending ? `₹${formatCleanNum(customer.pendingBalance)} बाकी` : '✓ चुकता'}
+              </Text>
+            </View>
+            <Text style={styles.chevronIcon}>›</Text>
+          </View>
+        </View>
 
-          {/* Chevron Right */}
-          <Text style={styles.chevronIcon}>›</Text>
+        {/* Subtle Horizontal Divider */}
+        <View style={styles.cardInnerDivider} />
+
+        {/* ROW 2: Crop Type (आटा, तेल, दर्रा, मसाला) with Icon + Weight in KG + Date & Action */}
+        <View style={styles.cardBottomRow}>
+          {/* Crop Badge Pill */}
+          <View
+            style={[
+              styles.cropBadgePill,
+              { backgroundColor: crop.bg, borderColor: crop.border },
+            ]}
+          >
+            <Text style={styles.cropBadgeIcon}>{crop.icon}</Text>
+            <Text style={[styles.cropBadgeLabel, { color: crop.color }]}>
+              {crop.label}
+            </Text>
+            {weightVal > 0 ? (
+              <View style={[styles.weightInnerBadge, { backgroundColor: crop.badgeBg }]}>
+                <Text style={[styles.weightInnerText, { color: crop.color }]}>
+                  {formatCleanNum(weightVal)} kg
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Right Action: Date + Handover button */}
+          <View style={styles.bottomRowRightAction}>
+            <Text style={styles.dateLabelText}>
+              📅 {customer.timeStr || (customer.createdAt ? new Date(customer.createdAt).toLocaleDateString('hi-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-') : 'आज')}
+            </Text>
+            <TouchableOpacity
+              style={styles.cardDeliverBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleDeliverOrder(customer);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.cardDeliverBtnText}>📦 माल दें</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -220,18 +645,36 @@ export const PickupDeliveryScreen = ({ navigation }) => {
   // Render Empty State
   const renderEmptyState = () => (
     <View style={styles.emptyStateCard}>
-      <Text style={styles.emptyStateEmoji}>🔍</Text>
-      <Text style={styles.emptyStateTitle}>कोई ग्राहक नहीं मिला</Text>
+      <Text style={styles.emptyStateEmoji}>🌾</Text>
+      <Text style={styles.emptyStateTitle}>कोई माल लेने वाला ग्राहक नहीं है</Text>
       <Text style={styles.emptyStateSubtitle}>
-        "{searchQuery}" नाम या गाँव से कोई रिकॉर्ड उपलब्ध नहीं है
+        {searchQuery.trim()
+          ? `"${searchQuery}" नाम या गाँव से कोई रिकॉर्ड उपलब्ध नहीं है`
+          : 'नई पिसाई दर्ज करने पर ग्राहक यहाँ दिखाई देंगे'}
       </Text>
-      <TouchableOpacity
-        style={styles.resetSearchBtn}
-        onPress={() => setSearchQuery('')}
-      >
-        <Text style={styles.resetSearchBtnText}>सभी ग्राहक दिखाएं</Text>
-      </TouchableOpacity>
+      {searchQuery.trim().length > 0 && (
+        <TouchableOpacity
+          style={styles.resetSearchBtn}
+          onPress={() => setSearchQuery('')}
+        >
+          <Text style={styles.resetSearchBtnText}>सभी ग्राहक दिखाएं</Text>
+        </TouchableOpacity>
+      )}
     </View>
+  );
+
+  // Calculate live, non-zero counters for top cards (Always updated!)
+  const totalCustomersCount = Math.max(
+    Number(stats?.totalCustomers) || 0,
+    effectiveCustomerList.length,
+    (contextCustomers || []).length
+  );
+
+  const todayEntriesCount = Math.max(
+    Number(stats?.todayAdded) || 0,
+    Number(stats?.todayEntries) || 0,
+    effectiveCustomerList.length,
+    (contextCustomers || []).length
   );
 
   return (
@@ -288,7 +731,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       <View style={styles.fixedTopSection}>
         {/* 2. SUMMARY CARDS (2 Cards Side-by-Side) */}
         <View style={styles.statCardsRow}>
-          {/* First Card: कुल ग्राहक (125, +12%) */}
+          {/* First Card: कुल ग्राहक */}
           <View style={styles.statCard}>
             <View style={styles.statCardTopRow}>
               {/* Soft Green Users Icon Box */}
@@ -299,17 +742,19 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               <View style={styles.statTextCol}>
                 <Text style={styles.statLabel}>कुल ग्राहक</Text>
                 <Text style={styles.statValueGreen}>
-                  {stats?.totalCustomers || 125}
+                  {totalCustomersCount}
                 </Text>
               </View>
             </View>
             {/* Green Growth Badge Aligned Bottom-Right */}
-            <View style={styles.growthBadgeGreen}>
-              <Text style={styles.growthBadgeTextGreen}>↗ +12%</Text>
-            </View>
+            {(stats?.growthPercent || 0) > 0 ? (
+              <View style={styles.growthBadgeGreen}>
+                <Text style={styles.growthBadgeTextGreen}>↗ +{stats.growthPercent}%</Text>
+              </View>
+            ) : null}
           </View>
 
-          {/* Second Card: आज की एंट्री (38, +8 आज) */}
+          {/* Second Card: आज की एंट्री */}
           <View style={styles.statCard}>
             <View style={styles.statCardTopRow}>
               {/* Soft Blue Check Icon Box */}
@@ -322,14 +767,16 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               <View style={styles.statTextCol}>
                 <Text style={styles.statLabel}>आज की एंट्री</Text>
                 <Text style={styles.statValueDark}>
-                  {stats?.todayEntries || 38}
+                  {todayEntriesCount}
                 </Text>
               </View>
             </View>
             {/* Blue Badge Aligned Bottom-Right */}
-            <View style={styles.indicatorBadgeBlue}>
-              <Text style={styles.indicatorBadgeTextBlue}>+8 आज</Text>
-            </View>
+            {todayEntriesCount > 0 ? (
+              <View style={styles.indicatorBadgeBlue}>
+                <Text style={styles.indicatorBadgeTextBlue}>+{todayEntriesCount} आज</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -397,13 +844,21 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       {/* 5. SCROLLABLE CUSTOMER LIST ONLY (Search Box stays fixed at the top!) */}
       <FlatList
         data={filteredCustomers}
-        keyExtractor={(item, index) => item.id || `cust_${index}`}
+        keyExtractor={(item, index) => item.id || item._id || `cust_${index}`}
         renderItem={renderCustomerItem}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listScrollContent}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={renderEmptyState}
         style={styles.customerListWrapper}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#006B3C']}
+            tintColor="#006B3C"
+          />
+        }
       />
 
       {/* 6. FIXED BOTTOM NAVIGATION DOCK (Home active in dark green with underline) */}
@@ -428,15 +883,15 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               <View style={styles.deliveryHeaderRow}>
                 <View style={styles.deliveryAvatarBadge}>
                   <Text style={styles.deliveryAvatarText}>
-                    {selectedCustomer.avatarText || getAvatarInitials(selectedCustomer.name)}
+                    {selectedCustomer.avatarText || getAvatarInitials(selectedCustomer.name || selectedCustomer.customerName)}
                   </Text>
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.deliveryCustName}>
-                    {selectedCustomer.name}
+                    {selectedCustomer.name || selectedCustomer.customerName || 'अज्ञात ग्राहक'}
                   </Text>
                   <Text style={styles.deliveryCustVillage}>
-                    📍 {selectedCustomer.village || 'रामपुर'} • {selectedCustomer.phone || '+91 98765 43210'}
+                    📍 {selectedCustomer.village || 'ग्राम'}{selectedCustomer.phone ? ` • 📞 ${selectedCustomer.phone}` : ''}
                   </Text>
                 </View>
               </View>
@@ -448,7 +903,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
                 <View style={styles.deliveryStatBox}>
                   <Text style={styles.deliveryStatLabel}>पिसाई वजन</Text>
                   <Text style={styles.deliveryStatVal}>
-                    🌾 {selectedCustomer.weightKg || selectedCustomer.totalPisaiKg || 25} kg
+                    🌾 {formatCleanNum(selectedCustomer.weightKg || selectedCustomer.totalPisaiKg)} kg
                   </Text>
                 </View>
 
@@ -463,7 +918,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
                     ]}
                   >
                     {selectedCustomer.pendingBalance > 0
-                      ? `₹${selectedCustomer.pendingBalance} बाकी`
+                      ? `₹${formatCleanNum(selectedCustomer.pendingBalance)} बाकी`
                       : 'चुकता'}
                   </Text>
                 </View>
@@ -543,12 +998,24 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               <Text style={styles.successSubtitle}>
                 {deliverySuccessModal.name} को {deliverySuccessModal.weightKg || 25} kg माल सफलतापूर्वक सौंप दिया गया है।
               </Text>
-              <TouchableOpacity
-                style={styles.successOkBtn}
-                onPress={() => setDeliverySuccessModal(null)}
-              >
-                <Text style={styles.successOkBtnText}>ठीक है</Text>
-              </TouchableOpacity>
+              <View style={styles.successButtonsRow}>
+                <TouchableOpacity
+                  style={styles.successOkBtn}
+                  onPress={() => setDeliverySuccessModal(null)}
+                >
+                  <Text style={styles.successOkBtnText}>ठीक है</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.successHistoryBtn}
+                  onPress={() => {
+                    setDeliverySuccessModal(null);
+                    navigation.navigate('DeliveryHistory');
+                  }}
+                >
+                  <Text style={styles.successHistoryBtnText}>📜 हिस्ट्री देखें</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -568,11 +1035,17 @@ export const PickupDeliveryScreen = ({ navigation }) => {
         >
           <View style={styles.modalContentBox}>
             <Text style={styles.modalTitle}>📅 तारीख चुनें</Text>
-            {['20 नव (आज)', '19 नव (कल)', '18 नव', 'सभी रिकॉर्ड'].map((dateOpt) => {
-              const cleanDate =
-                dateOpt.split(' ')[0] +
-                ' ' +
-                (dateOpt.split(' ')[1] || '').replace('(', '').replace(')', '');
+            {(() => {
+              const now = new Date();
+              const todayStr = `${now.toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' })} (आज)`;
+              const yest = new Date(now);
+              yest.setDate(now.getDate() - 1);
+              const yestStr = `${yest.toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' })} (कल)`;
+              return [todayStr, yestStr, 'इस सप्ताह', 'सभी रिकॉर्ड'];
+            })().map((dateOpt) => {
+              const cleanDate = dateOpt.includes('(')
+                ? dateOpt.split(' ')[0] + ' ' + (dateOpt.split(' ')[1] || '').replace('(', '').replace(')', '')
+                : dateOpt;
               return (
                 <TouchableOpacity
                   key={dateOpt}
@@ -1119,44 +1592,49 @@ const styles = StyleSheet.create({
   customerCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 14,
     marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
     elevation: 2,
     shadowColor: '#64748B',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
   },
   avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
   },
-  customerMiddleCol: {
+  customerNameCol: {
     flex: 1,
     marginLeft: 12,
+    marginRight: 6,
     justifyContent: 'center',
   },
   customerName: {
-    fontSize: 17,
-    fontWeight: '900',
+    fontSize: 16.5,
+    fontWeight: '800',
     color: '#063A1B',
   },
   villageRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 2,
+    flexWrap: 'nowrap',
   },
   pinIcon: {
     fontSize: 12,
@@ -1164,47 +1642,113 @@ const styles = StyleSheet.create({
     color: '#EF4444', // Red location pin matching reference
   },
   villageText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  customerRightCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  weightBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-  },
-  weightWheatIcon: {
     fontSize: 13,
-  },
-  weightText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  rowVerticalDivider: {
-    width: 1,
-    height: 18,
-    backgroundColor: '#E2E8F0',
-    marginHorizontal: 8,
-  },
-  timeText: {
-    fontSize: 12.5,
     fontWeight: '600',
-    color: '#334155',
+    color: '#475569',
+  },
+  cardPhoneText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  statusAndChevronCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paymentMiniPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+  },
+  paymentMiniPillRed: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  paymentMiniPillGreen: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  paymentMiniText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  paymentTextRed: {
+    color: '#DC2626',
+  },
+  paymentTextGreen: {
+    color: '#16A34A',
   },
   chevronIcon: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#94A3B8',
     marginLeft: 4,
+  },
+  cardInnerDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 9,
+    width: '100%',
+  },
+  cardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  cropBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 5,
+  },
+  cropBadgeIcon: {
+    fontSize: 13.5,
+  },
+  cropBadgeLabel: {
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  weightInnerBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+    marginLeft: 2,
+  },
+  weightInnerText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  dateLabelBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateLabelText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  bottomRowRightAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardDeliverBtn: {
+    backgroundColor: '#0F5132',
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: 10,
+    elevation: 1,
+  },
+  cardDeliverBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   /* Empty State */
@@ -1424,16 +1968,39 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 20,
   },
+  successButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    marginTop: 6,
+  },
   successOkBtn: {
+    flex: 1,
     backgroundColor: '#0F4A2C',
-    paddingVertical: 10,
-    paddingHorizontal: 28,
+    paddingVertical: 12,
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   successOkBtnText: {
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 14,
+  },
+  successHistoryBtn: {
+    flex: 1.2,
+    backgroundColor: '#E1F5EC',
+    borderWidth: 1.5,
+    borderColor: '#0F5132',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successHistoryBtnText: {
+    color: '#0F5132',
+    fontSize: 13.5,
+    fontWeight: '800',
   },
 
   /* Date & Filter Modals */

@@ -21,18 +21,17 @@ export const BillPrintScreen = ({ navigation, route }) => {
     return `${day}-${month}-${year}`;
   })();
 
-  // Defaults matching Photo 2 reference: Ramlal, 25 kg wheat, ₹4/kg, ₹100
   const billData = {
     millName: entry.millName || 'Chakki Smart AI',
     millTagline: entry.millTagline || 'आटा चक्की एवं मिल',
-    customerName: entry.customerName || entry.name || 'रामलाल',
+    customerName: entry.customerName || entry.name || 'ग्राहक',
     item: entry.item || (entry.cropType === 'OIL' ? 'सरसों (तेल)' : entry.cropType === 'MASALA' ? 'मसाला (कुटाई)' : 'गेहूं (पिसाई)'),
-    weightKg: entry.weightKg !== undefined ? entry.weightKg : (entry.weight !== undefined ? entry.weight : 25),
-    ratePerKg: entry.ratePerKg !== undefined ? entry.ratePerKg : (entry.rate !== undefined ? entry.rate : 4),
-    totalAmount: entry.totalAmount !== undefined ? entry.totalAmount : (entry.total !== undefined ? entry.total : 100),
-    pendingAmount: entry.pendingAmount !== undefined ? entry.pendingAmount : (entry.pending !== undefined ? entry.pending : 100),
-    date: entry.date || todayFormatted || '25-04-2025',
-    status: entry.status || 'भुगतान बाकी',
+    weightKg: entry.weightKg !== undefined ? entry.weightKg : (entry.weight !== undefined ? entry.weight : 0),
+    ratePerKg: entry.ratePerKg !== undefined ? entry.ratePerKg : (entry.rate !== undefined ? entry.rate : 0),
+    totalAmount: entry.totalAmount !== undefined ? entry.totalAmount : (entry.total !== undefined ? entry.total : 0),
+    pendingAmount: entry.pendingAmount !== undefined ? entry.pendingAmount : (entry.pending !== undefined ? entry.pending : 0),
+    date: entry.date || todayFormatted,
+    status: entry.status || (entry.pendingAmount > 0 ? 'भुगतान बाकी' : 'भुगतान चुकता'),
   };
 
   const handleWhatsAppShare = () => {
@@ -149,6 +148,23 @@ export const BillPrintScreen = ({ navigation, route }) => {
               onPress={handlePrinterSettings}
             >
               <Text style={styles.settingsIcon}>⚙️</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              style={styles.homeBtn}
+              activeOpacity={0.88}
+              onPress={() => navigation.replace('Home')}
+            >
+              <Text style={styles.homeBtnText}>🏠 मुख्य पेज (Home)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.newEntryBtn}
+              activeOpacity={0.88}
+              onPress={() => navigation.replace('NewEntry')}
+            >
+              <Text style={styles.newEntryBtnText}>🌾 + नई पिसाई</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -353,5 +369,39 @@ const styles = StyleSheet.create({
   },
   actionIcon: {
     fontSize: 18,
+  },
+  navRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  homeBtn: {
+    flex: 1,
+    backgroundColor: '#0F4A2C',
+    paddingVertical: 13,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+  },
+  homeBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  newEntryBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 13,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: '#0F4A2C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newEntryBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F4A2C',
   },
 });

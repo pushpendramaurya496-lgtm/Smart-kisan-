@@ -18,10 +18,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { CustomerApiService } from '../services/customerApiService';
 import { SpeechService } from '../services/speechService';
+import { useChakki } from '../context/ChakkiContext';
+
+const formatCleanNum = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const num = Math.round(Number(val) * 100) / 100;
+  return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+};
 
 export const CustomerDashboardScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
+  const { recordCustomerPayment, refreshStats } = useChakki();
 
   const passedCustomer = route?.params?.customer || {};
   const customerId = route?.params?.customerId || passedCustomer.id || 'c1';
@@ -37,6 +45,10 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
 
   useEffect(() => {
     loadDashboard();
+    if (route?.params?.openPayModal && passedCustomer?.pendingBalance > 0) {
+      setPayAmount(String(passedCustomer.pendingBalance));
+      setShowPayModal(true);
+    }
   }, [customerId]);
 
   const loadDashboard = async () => {
@@ -52,17 +64,17 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
   };
 
   const customer = dashboardData?.customer || passedCustomer || {
-    name: 'रामलाल',
-    village: 'रामपुर',
-    phone: '+91 98765 43210',
-    pendingBalance: 1250,
+    name: '',
+    village: '',
+    phone: '',
+    pendingBalance: 0,
   };
   const summary = dashboardData?.financialSummary || {
-    pendingBalance: customer.pendingBalance || 1250,
-    totalBilled: 540,
-    totalPaid: 470,
-    totalWeightMilledKg: 75,
-    totalOrdersCount: 3,
+    pendingBalance: customer.pendingBalance || 0,
+    totalBilled: 0,
+    totalPaid: 0,
+    totalWeightMilledKg: 0,
+    totalOrdersCount: 0,
   };
   const history = dashboardData?.history || [];
 
@@ -85,6 +97,53 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
         paymentMethod: payMethod,
       });
 
+      // 1. Immediately update ChakkiContext so HomeScreen and other dashboards update live
+      if (recordCustomerPayment) {
+        recordCustomerPayment({
+          customerId: customer.id || customerId,
+          customerName: customer.name,
+          amount: amt,
+          paymentMethod: payMethod,
+        });
+      }
+      if (refreshStats) {
+        refreshStats();
+      }
+
+      // 2. Immediately update local state in CustomerDashboard
+      setDashboardData((prev) => {
+        if (!prev) return prev;
+        const currentBal = Number(prev.financialSummary?.pendingBalance || prev.customer?.pendingBalance || 0);
+        const newBal = Math.max(0, Math.round((currentBal - amt) * 100) / 100);
+        const newTotalPaid = Math.round(((Number(prev.financialSummary?.totalPaid) || 0) + amt) * 100) / 100;
+        return {
+          ...prev,
+          customer: {
+            ...prev.customer,
+            pendingBalance: newBal,
+          },
+          financialSummary: {
+            ...prev.financialSummary,
+            pendingBalance: newBal,
+            totalPaid: newTotalPaid,
+          },
+          history: [
+            {
+              id: 'pay_' + Date.now(),
+              date: new Date().toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' }),
+              type: 'PAYMENT',
+              category: `उधार भुगतान (${payMethod === 'UPI' ? 'ऑनलाइन' : 'नकद'})`,
+              weightKg: 0,
+              totalAmount: 0,
+              amountPaid: amt,
+              pendingAmount: newBal,
+              status: 'जमा हुआ',
+            },
+            ...(prev.history || []),
+          ],
+        };
+      });
+
       SpeechService.announceCashReceived(customer.name, amt);
 
       Alert.alert(
@@ -93,7 +152,7 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
       );
       setShowPayModal(false);
       setPayAmount('');
-      // Reload updated records
+      // Reload fresh records from backend
       loadDashboard();
     } catch (err) {
       Alert.alert('त्रुटि', err.message || 'भुगतान दर्ज करने में विफल');
@@ -234,6 +293,61 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
             </View>
           </View>
 
+          {/* 2.5 CUSTOMER STATS HIGHLIGHT GRID (कुल पिसाई फेरे, कुल बिल, कुल वजन, कुल जमा) */}
+          <View style={styles.statsSummaryGrid}>
+            {/* Card 1: कितनी बार पिसाया (कुल फेरे) */}
+            <View style={styles.statTileCard}>
+              <View style={[styles.statTileIconBox, { backgroundColor: '#EFF6FF' }]}>
+                <Text style={styles.statTileIcon}>🔄</Text>
+              </View>
+              <View style={styles.statTileContent}>
+                <Text style={styles.statTileLabel}>कुल पिसाई फेरे</Text>
+                <Text style={styles.statTileValue}>
+                  {summary.totalOrdersCount || (history && history.length > 0 ? history.length : 1)} बार
+                </Text>
+              </View>
+            </View>
+
+            {/* Card 2: कुल पिसाई बिल */}
+            <View style={styles.statTileCard}>
+              <View style={[styles.statTileIconBox, { backgroundColor: '#ECFDF5' }]}>
+                <Text style={styles.statTileIcon}>🧾</Text>
+              </View>
+              <View style={styles.statTileContent}>
+                <Text style={styles.statTileLabel}>कुल पिसाई बिल</Text>
+                <Text style={[styles.statTileValue, { color: '#006B3C' }]}>
+                  ₹{formatCleanNum(summary.totalBilled || ((Number(summary.pendingBalance) || 0) + (Number(summary.totalPaid) || 0)))}
+                </Text>
+              </View>
+            </View>
+
+            {/* Card 3: कुल पिसाई वजन */}
+            <View style={styles.statTileCard}>
+              <View style={[styles.statTileIconBox, { backgroundColor: '#FFFBEB' }]}>
+                <Text style={styles.statTileIcon}>⚖️</Text>
+              </View>
+              <View style={styles.statTileContent}>
+                <Text style={styles.statTileLabel}>कुल पिसाई वजन</Text>
+                <Text style={[styles.statTileValue, { color: '#B45309' }]}>
+                  {formatCleanNum(summary.totalWeightMilledKg || customer.totalWeightMilledKg || (customer.weightKg || (customer.weight ? parseFloat(customer.weight) : 0)) || 0)} KG
+                </Text>
+              </View>
+            </View>
+
+            {/* Card 4: कुल जमा रकम */}
+            <View style={styles.statTileCard}>
+              <View style={[styles.statTileIconBox, { backgroundColor: '#F0FDF4' }]}>
+                <Text style={styles.statTileIcon}>✅</Text>
+              </View>
+              <View style={styles.statTileContent}>
+                <Text style={styles.statTileLabel}>कुल जमा रकम</Text>
+                <Text style={[styles.statTileValue, { color: '#15803D' }]}>
+                  ₹{formatCleanNum(summary.totalPaid || 0)}
+                </Text>
+              </View>
+            </View>
+          </View>
+
           {/* 3. FINANCIAL SUMMARY - कितना बाकी है (PENDING ARREARS HERO CARD) */}
           <View
             style={[
@@ -292,7 +406,7 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
                   : styles.pendingAmountGreen,
               ]}
             >
-              ₹ {summary.pendingBalance}
+              ₹ {formatCleanNum(summary.pendingBalance)}
             </Text>
 
             <Text style={styles.pendingSubtitle}>
@@ -438,7 +552,7 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
             <Text style={styles.payModalSubtitle}>
               ग्राहक: <Text style={{ fontWeight: '800' }}>{customer.name}</Text> • कुल बाकी:{' '}
               <Text style={{ fontWeight: '800', color: '#DC2626' }}>
-                ₹{summary.pendingBalance}
+                ₹{formatCleanNum(summary.pendingBalance)}
               </Text>
             </Text>
 
@@ -460,10 +574,10 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
             <View style={styles.quickPillsRow}>
               <TouchableOpacity
                 style={styles.quickPill}
-                onPress={() => setPayAmount(String(summary.pendingBalance))}
+                onPress={() => setPayAmount(String(formatCleanNum(summary.pendingBalance)))}
               >
                 <Text style={styles.quickPillText}>
-                  पूरा हिसाब चुकता (₹{summary.pendingBalance})
+                  पूरा हिसाब चुकता (₹{formatCleanNum(summary.pendingBalance)})
                 </Text>
               </TouchableOpacity>
               {summary.pendingBalance > 200 && (
@@ -713,6 +827,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#0F5132',
+  },
+
+  /* 2.5 Highlight Stats Tiles Grid */
+  statsSummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 10,
+    marginBottom: 14,
+  },
+  statTileCard: {
+    width: '48.5%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: 2,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+  },
+  statTileIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  statTileIcon: {
+    fontSize: 18,
+  },
+  statTileContent: {
+    flex: 1,
+  },
+  statTileLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 2,
+  },
+  statTileValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
   },
 
   /* Hero Pending Debt Card */

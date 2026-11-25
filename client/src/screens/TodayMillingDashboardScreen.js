@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,16 @@ import {
   Image,
   Modal,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { BottomDock } from '../components/BottomDock';
 import { SpeechService } from '../services/speechService';
+import { DashboardApiService } from '../services/dashboardApiService';
+import { ChakkiCalendarModal } from '../components/ChakkiCalendarModal';
+import { useChakki } from '../context/ChakkiContext';
 
 const { width } = Dimensions.get('window');
 
@@ -55,65 +59,107 @@ const MicrophoneGreenIcon = () => (
   </View>
 );
 
-// ─── MILLING DATA PRESETS ───────────────────────────────────────────────────
-const MILLING_PRESETS = {
-  today: {
-    label: 'आज (Today)',
-    dateStr: '23 नवंबर 2026',
-    totalPisai: '485 KG',
-    totalCustomers: '32',
-    totalEarnings: '₹4,850',
-    totalReceived: '₹4,500',
-    details: [
-      { id: 'oil', name: 'तेल पिराई', customers: '12 ग्राहक', weight: '150 KG', amount: '₹2,000', img: iconMillingOilImg },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '10 ग्राहक', weight: '100 KG', amount: '₹1,500', img: iconMillingHaldiImg },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '10 ग्राहक', weight: '135 KG', amount: '₹1,350', img: iconMillingDarraImg },
-      { id: 'atta', name: 'आटा पिसाई', customers: '8 ग्राहक', weight: '100 KG', amount: '₹1,000', img: iconMillingAttaImg },
-    ],
-  },
-  yesterday: {
-    label: 'कल (Yesterday)',
-    dateStr: '22 नवंबर 2026',
-    totalPisai: '420 KG',
-    totalCustomers: '28',
-    totalEarnings: '₹4,100',
-    totalReceived: '₹3,900',
-    details: [
-      { id: 'oil', name: 'तेल पिराई', customers: '10 ग्राहक', weight: '130 KG', amount: '₹1,700', img: iconMillingOilImg },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '9 ग्राहक', weight: '90 KG', amount: '₹1,350', img: iconMillingHaldiImg },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '8 ग्राहक', weight: '110 KG', amount: '₹1,100', img: iconMillingDarraImg },
-      { id: 'atta', name: 'आटा पिसाई', customers: '7 ग्राहक', weight: '90 KG', amount: '₹950', img: iconMillingAttaImg },
-    ],
-  },
-  week: {
-    label: 'इस हफ्ते (This Week)',
-    dateStr: '17 नवं - 23 नवं 2026',
-    totalPisai: '3,240 KG',
-    totalCustomers: '214',
-    totalEarnings: '₹31,200',
-    totalReceived: '₹29,050',
-    details: [
-      { id: 'oil', name: 'तेल पिराई', customers: '82 ग्राहक', weight: '1,050 KG', amount: '₹12,800', img: iconMillingOilImg },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '64 ग्राहक', weight: '720 KG', amount: '₹9,200', img: iconMillingHaldiImg },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '38 ग्राहक', weight: '850 KG', amount: '₹5,400', img: iconMillingDarraImg },
-      { id: 'atta', name: 'आटा पिसाई', customers: '30 ग्राहक', weight: '620 KG', amount: '₹3,800', img: iconMillingAttaImg },
-    ],
-  },
+// ─── EMPTY STATE TEMPLATE (REAL ZEROES DEFAULT) ─────────────────────────────
+const EMPTY_MILLING = {
+  label: 'आज (Today)',
+  dateStr: 'आज की तारीख',
+  totalPisai: '0 KG',
+  totalCustomers: '0',
+  totalEarnings: '₹0',
+  totalReceived: '₹0',
+  details: [
+    { id: 'oil', name: 'तेल पिराई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingOilImg },
+    { id: 'haldi', name: 'हल्दी पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingHaldiImg },
+    { id: 'darra', name: 'दर्रा पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingDarraImg },
+    { id: 'atta', name: 'आटा पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingAttaImg },
+  ],
 };
 
 // ─── MAIN TODAY MILLING DASHBOARD SCREEN ─────────────────────────────────────
 export const TodayMillingDashboardScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 42);
+  const { stats } = useChakki();
 
   const [selectedPeriod, setSelectedPeriod] = useState('today');
+  const [customDateIso, setCustomDateIso] = useState(null);
+  const [customDateLabel, setCustomDateLabel] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [liveData, setLiveData] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const currentData = MILLING_PRESETS[selectedPeriod] || MILLING_PRESETS.today;
+  const fetchMillingData = useCallback(async (period = selectedPeriod, date = customDateIso) => {
+    try {
+      const data = await DashboardApiService.getMilling(period, date);
+      if (data) {
+        const detailsWithIcons = (data.details || []).map(d => {
+          let img = iconMillingAttaImg;
+          if (d.id === 'oil') img = iconMillingOilImg;
+          else if (d.id === 'haldi') img = iconMillingHaldiImg;
+          else if (d.id === 'darra') img = iconMillingDarraImg;
+          return { ...d, img };
+        });
+        setLiveData({
+          ...data,
+          label: period === 'yesterday' ? 'कल (Yesterday)' : period === 'week' ? 'इस हफ्ते (This Week)' : 'आज (Today)',
+          details: detailsWithIcons,
+        });
+      }
+    } catch (err) {
+      console.warn('Real milling fetch error:', err.message);
+    }
+  }, [selectedPeriod, customDateIso]);
+
+  useEffect(() => {
+    fetchMillingData(selectedPeriod, customDateIso);
+  }, [selectedPeriod, customDateIso, fetchMillingData, stats?.todayPisaiKg, stats?.totalCustomers, stats?.todayEarnings]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchMillingData(selectedPeriod, customDateIso);
+    setRefreshing(false);
+  };
+
+  const handleSelectCalendarDate = (dateObj) => {
+    if (dateObj.period === 'weekly') {
+      setSelectedPeriod('week');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else if (dateObj.period === 'monthly') {
+      setSelectedPeriod('month');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else {
+      setSelectedPeriod('today');
+      setCustomDateLabel(dateObj.dateFormatted);
+      const y = dateObj.year;
+      const m = String(dateObj.month + 1).padStart(2, '0');
+      const d = String(dateObj.day).padStart(2, '0');
+      setCustomDateIso(`${y}-${m}-${d}`);
+    }
+  };
+
+  const fallbackMilling = {
+    ...EMPTY_MILLING,
+    totalPisai: `${stats?.todayPisaiKg || 0} KG`,
+    totalCustomers: String(stats?.totalCustomers || 0),
+    totalEarnings: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`,
+    totalReceived: `₹${(stats?.cashReceived || 0).toLocaleString('en-IN')}`,
+    label: selectedPeriod === 'yesterday' ? 'कल (Yesterday)' : selectedPeriod === 'week' ? 'इस हफ्ते (This Week)' : 'आज (Today)',
+    dateStr: customDateLabel || (selectedPeriod === 'yesterday' ? 'कल की तारीख' : selectedPeriod === 'week' ? 'इस सप्ताह' : 'आज की तारीख'),
+    details: [
+      { id: 'oil', name: 'तेल पिराई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingOilImg },
+      { id: 'haldi', name: 'हल्दी पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingHaldiImg },
+      { id: 'darra', name: 'दर्रा पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingDarraImg },
+      { id: 'atta', name: 'आटा पिसाई', customers: `${stats?.totalCustomers || 0} ग्राहक`, weight: `${stats?.todayPisaiKg || 0} KG`, amount: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`, img: iconMillingAttaImg },
+    ],
+  };
+
+  const currentData = liveData || fallbackMilling;
 
   // Filter details based on search query
-  const filteredDetails = currentData.details.filter(item => {
+  const filteredDetails = (currentData.details || []).filter(item => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return item.name.toLowerCase().includes(q) || item.customers.toLowerCase().includes(q);
@@ -130,6 +176,7 @@ export const TodayMillingDashboardScreen = ({ navigation }) => {
     if (tabId === 'home') navigation.navigate('Home');
     else if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
@@ -185,6 +232,14 @@ export const TodayMillingDashboardScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#15803D']}
+              tintColor="#15803D"
+            />
+          }
         >
           {/* ── 2. SEARCH BAR (With Magnifier and Green Microphone) ── */}
           <View style={styles.searchBarContainer}>
@@ -322,56 +377,13 @@ export const TodayMillingDashboardScreen = ({ navigation }) => {
         <BottomDock activeTab="home" onTabPress={handleTabPress} />
       </View>
 
-      {/* ── CALENDAR DATE PICKER MODAL ── */}
-      <Modal
+      {/* ── INTERACTIVE VISUAL CALENDAR MODAL ── */}
+      <ChakkiCalendarModal
         visible={calendarModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCalendarModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setCalendarModalVisible(false)}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📅 तारीख व अवधि चुनें</Text>
-              <TouchableOpacity onPress={() => setCalendarModalVisible(false)}>
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Date Presets */}
-            {Object.keys(MILLING_PRESETS).map((key) => {
-              const preset = MILLING_PRESETS[key];
-              const isSelected = selectedPeriod === key;
-              return (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.presetRow, isSelected && styles.presetRowSelected]}
-                  onPress={() => {
-                    setSelectedPeriod(key);
-                    setCalendarModalVisible(false);
-                  }}
-                >
-                  <Text style={[styles.presetLabel, isSelected && styles.presetLabelSelected]}>
-                    {preset.label}
-                  </Text>
-                  <Text style={styles.presetDate}>{preset.dateStr}</Text>
-                </TouchableOpacity>
-              );
-            })}
-
-            <TouchableOpacity
-              style={styles.modalDoneButton}
-              onPress={() => setCalendarModalVisible(false)}
-            >
-              <Text style={styles.modalDoneButtonText}>चुनें (Select)</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setCalendarModalVisible(false)}
+        onSelectDate={handleSelectCalendarDate}
+        initialPeriod={selectedPeriod}
+      />
     </View>
   );
 };

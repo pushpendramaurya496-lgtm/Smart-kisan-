@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,22 +7,58 @@ import {
   ScrollView,
   TextInput,
   Image,
-  Modal,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { BottomDock } from '../components/BottomDock';
 import { SpeechService } from '../services/speechService';
+import { DashboardApiService } from '../services/dashboardApiService';
+import { ChakkiCalendarModal } from '../components/ChakkiCalendarModal';
+import { useChakki } from '../context/ChakkiContext';
+import { getCustomerTimestamp, formatArrivalTime } from '../utils/customerTimestampHelper';
 
 const { width } = Dimensions.get('window');
+
+const formatCleanNum = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const num = Math.round(Number(val) * 100) / 100;
+  return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const normalizeString = (str) => {
+  if (!str) return '';
+  return str
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, ' ');
+};
+
+const getCustomerDedupKey = (c) => {
+  if (!c) return '';
+  const cleanPhone = (c.phone || '').toString().replace(/\D/g, '');
+  if (cleanPhone.length >= 10) {
+    return `ph_${cleanPhone.slice(-10)}`;
+  }
+  const cleanName = normalizeString(c.name || c.customerName);
+  const rawVillage = normalizeString(c.village);
+  const cleanVillage = rawVillage.replace(/^(ग्राम|गाँव|village)\s*/i, '').trim();
+
+  if (cleanName) {
+    const v = (!cleanVillage || cleanVillage === 'ग्राम' || cleanVillage === 'गांव') ? 'default' : cleanVillage;
+    return `cust_${cleanName}_${v}`;
+  }
+  return `id_${String(c.id || c.customerId || c._id || '')}`;
+};
 
 // ─── HIGH-DEFINITION ASSETS FROM EXACT REFERENCE ────────────────────────────
 const customerLogoImg = require('../../assets/customer/customer_logo.png');
 const customerCalBtnImg = require('../../assets/customer/customer_cal_btn.png');
 const iconUsersGroupImg = require('../../assets/customer/icon_users_group.png');
-const customerBottomWaveImg = require('../../assets/customer/customer_bottom_wave.png');
 
 // ─── VECTOR MINI ICONS ──────────────────────────────────────────────────────
 const HamburgerMenuIcon = () => (
@@ -48,78 +84,182 @@ const MicrophoneGreenIcon = () => (
   </View>
 );
 
-// ─── SAMPLE DYNAMIC CUSTOMER RECORDS ────────────────────────────────────────
-const INITIAL_CUSTOMERS = [
-  {
-    id: 'c1',
-    name: 'रामलाल',
-    village: 'रामपुर',
-    category: 'तेल पिराई',
-    categoryKey: 'oil',
-    weight: '50 KG',
-    amount: '₹150',
-    isPending: false,
-  },
-  {
-    id: 'c2',
-    name: 'मोहन',
-    village: 'नगला',
-    category: 'हल्दी पिसाई',
-    categoryKey: 'haldi',
-    weight: '20 KG',
-    amount: '₹200',
-    isPending: false,
-  },
-  {
-    id: 'c3',
-    name: 'सुरेश',
-    village: 'खेड़ा',
-    category: 'आटा पिसाई',
-    categoryKey: 'atta',
-    weight: '30 KG',
-    amount: '₹100',
-    isPending: false,
-  },
-  {
-    id: 'c4',
-    name: 'राजेश',
-    village: 'रामपुर',
-    category: 'दर्रा पिसाई',
-    categoryKey: 'darra',
-    weight: '40 KG',
-    amount: 'बाकी',
-    isPending: true,
-  },
-];
-
-// ─── DATE PRESETS ───────────────────────────────────────────────────────────
-const DATE_PRESETS = [
-  { key: 'today', label: 'आज (Today)', dateStr: '23 नवंबर 2026' },
-  { key: 'yesterday', label: 'कल (Yesterday)', dateStr: '22 नवंबर 2026' },
-  { key: 'week', label: 'पिछले 7 दिन (Last 7 Days)', dateStr: '17 - 23 नवंबर' },
-  { key: 'month', label: 'इस महीने (November 2026)', dateStr: '1 - 23 नवंबर' },
-];
-
 // ─── TOTAL CUSTOMER DASHBOARD SCREEN COMPONENT ──────────────────────────────
 export const TotalCustomerDashboardScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 42);
+  const { stats, customers: contextCustomers } = useChakki();
 
-  const [customers, setCustomers] = useState(INITIAL_CUSTOMERS);
+  const [customers, setCustomers] = useState([]);
+  const [categoryCounts, setCategoryCounts] = useState({ oil: 0, haldi: 0, darra: 0, atta: 0 });
+  const [totalDbCustomers, setTotalDbCustomers] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(null); // 'oil' | 'haldi' | 'darra' | 'atta' | null
   const [selectedDateKey, setSelectedDateKey] = useState('today');
+  const [customDateIso, setCustomDateIso] = useState(null);
+  const [customDateLabel, setCustomDateLabel] = useState(null);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sortOrder, setSortOrder] = useState('latest'); // 'latest' (नया ग्राहक सबसे ऊपर) | 'first_come' (पुराने से नया)
 
-  // Dynamic counts per category
-  const countOil = customers.filter(c => c.categoryKey === 'oil').length;
-  const countHaldi = customers.filter(c => c.categoryKey === 'haldi').length;
-  const countDarra = customers.filter(c => c.categoryKey === 'darra').length;
-  const countAtta = customers.filter(c => c.categoryKey === 'atta').length;
-  const totalCount = customers.length;
+  const fetchCustomersData = useCallback(async (period = selectedDateKey, date = customDateIso) => {
+    try {
+      const data = await DashboardApiService.getCustomers(period, date);
+      if (data) {
+        setCustomers(data.customers || []);
+        if (data.categories) setCategoryCounts(data.categories);
+        if (data.totalCustomers !== undefined) setTotalDbCustomers(data.totalCustomers);
+      }
+    } catch (err) {
+      console.warn('Real customers fetch error:', err.message);
+    }
+  }, [selectedDateKey, customDateIso]);
+
+  useEffect(() => {
+    fetchCustomersData(selectedDateKey, customDateIso);
+  }, [selectedDateKey, customDateIso, fetchCustomersData, stats?.totalCustomers, stats?.todayAdded, stats?.todayEntries, (contextCustomers || []).length]);
+
+  // Auto-reload on screen focus so newly added customers show immediately
+  useEffect(() => {
+    const unsub = navigation?.addListener ? navigation.addListener('focus', () => {
+      fetchCustomersData(selectedDateKey, customDateIso);
+    }) : undefined;
+    return unsub;
+  }, [navigation, fetchCustomersData, selectedDateKey, customDateIso]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchCustomersData(selectedDateKey, customDateIso);
+    setRefreshing(false);
+  };
+
+  const handleSelectCalendarDate = (dateObj) => {
+    if (dateObj.period === 'weekly') {
+      setSelectedDateKey('week');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else if (dateObj.period === 'monthly') {
+      setSelectedDateKey('month');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else {
+      setSelectedDateKey('today');
+      setCustomDateLabel(dateObj.dateFormatted);
+      const y = dateObj.year;
+      const m = String(dateObj.month + 1).padStart(2, '0');
+      const d = String(dateObj.day).padStart(2, '0');
+      setCustomDateIso(`${y}-${m}-${d}`);
+    }
+  };
+
+  // Resilient live-merged customer list combining contextCustomers and API data
+  const custMap = new Map();
+
+  // 1. Context customers (from local AsyncStorage or quick new entries)
+  (contextCustomers || []).forEach((c, idx) => {
+    const key = getCustomerDedupKey(c);
+    const lastMilled = (c.lastItemMilled || (c.history && c.history[0]?.itemLabel) || (c.history && c.history[0]?.item) || '').toString().toLowerCase();
+    let catKey = 'atta';
+    let catLabel = 'गेहूं (पिसाई)';
+    if (lastMilled.includes('तेल') || lastMilled.includes('सरसों') || lastMilled.includes('oil')) {
+      catKey = 'oil';
+      catLabel = 'सरसों (तेल)';
+    } else if (lastMilled.includes('मसाला') || lastMilled.includes('हल्दी') || lastMilled.includes('मिर्च') || lastMilled.includes('masala')) {
+      catKey = 'haldi';
+      catLabel = 'मसाला (कुटाई)';
+    } else if (lastMilled.includes('दर्रा') || lastMilled.includes('दलिया') || lastMilled.includes('darra')) {
+      catKey = 'darra';
+      catLabel = 'दर्रा / दलिया';
+    }
+
+    const wtNum = Number(c.lastMilledWeight || c.totalPisaiKg || c.weightKg || (c.history && c.history[0]?.weight) || 40);
+    const pendNum = Number(c.pendingBalance) || 0;
+    const paidNum = Number(c.paidAmount || c.paid || 0);
+    const totBill = Number(c.totalBill || (pendNum + paidNum));
+    const ts = getCustomerTimestamp(c);
+    const timeDisplay = formatArrivalTime(c);
+
+    custMap.set(key, {
+      id: c.id || c._id,
+      customerId: c.id || c._id,
+      name: c.name || c.customerName,
+      village: c.village || 'ग्राम',
+      phone: c.phone || '',
+      category: catLabel,
+      categoryKey: catKey,
+      weight: `${formatCleanNum(wtNum)} KG`,
+      weightKg: wtNum,
+      amount: pendNum > 0 ? `₹${formatCleanNum(pendNum)} बाकी` : 'चुकाया',
+      isPending: pendNum > 0,
+      pendingBalance: pendNum,
+      paid: paidNum,
+      totalBill: totBill,
+      totalOrdersCount: c.totalOrdersCount || (c.history ? c.history.length : 1),
+      history: c.history || [],
+      createdAt: c.createdAt,
+      lastVisitDate: c.lastVisitDate,
+      timestamp: ts,
+      orderIndex: ts,
+      timeDisplay,
+    });
+  });
+
+  // 2. Merge backend API customers
+  (customers || []).forEach((c, idx) => {
+    const key = getCustomerDedupKey(c);
+    const existing = custMap.get(key);
+    const ts = getCustomerTimestamp(c);
+    const timeDisplay = formatArrivalTime(c);
+
+    if (!existing) {
+      custMap.set(key, {
+        ...c,
+        timestamp: ts,
+        orderIndex: ts,
+        timeDisplay,
+      });
+    } else {
+      const bestTs = Math.max(existing.timestamp || 0, ts || 0);
+      custMap.set(key, {
+        ...c,
+        ...existing,
+        id: c.id || c.customerId || c._id || existing.id,
+        customerId: c.customerId || c.id || c._id || existing.customerId || existing.id,
+        timestamp: bestTs,
+        orderIndex: bestTs,
+        timeDisplay: existing.timeDisplay || timeDisplay,
+        amount: existing.amount || c.amount,
+        isPending: existing.isPending !== undefined ? existing.isPending : c.isPending,
+      });
+    }
+  });
+
+  const effectiveCustomers = Array.from(custMap.values());
+
+  // SORT BY ARRIVAL SEQUENCE:
+  // 'latest' (DEFAULT): जो अभी नया आया उसका नाम सबसे ऊपर (#1 Bindo, #2 Jigri...)
+  // 'first_come': जो पहले आया वो ऊपर
+  effectiveCustomers.sort((a, b) => {
+    const timeA = a.timestamp || getCustomerTimestamp(a) || 0;
+    const timeB = b.timestamp || getCustomerTimestamp(b) || 0;
+    if (sortOrder === 'latest') {
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+      return (b.orderIndex || 0) - (a.orderIndex || 0);
+    } else {
+      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+      return (a.orderIndex || 0) - (b.orderIndex || 0);
+    }
+  });
+
+  // Live real-time category counts strictly matching current customers on screen
+  const countOil = effectiveCustomers.filter(c => c.categoryKey === 'oil').length;
+  const countHaldi = effectiveCustomers.filter(c => c.categoryKey === 'haldi').length;
+  const countDarra = effectiveCustomers.filter(c => c.categoryKey === 'darra').length;
+  const countAtta = effectiveCustomers.filter(c => c.categoryKey === 'atta').length;
+  const totalCount = effectiveCustomers.length;
 
   // Filtered customer list
-  const filteredCustomers = customers.filter(c => {
+  const filteredCustomers = effectiveCustomers.filter(c => {
     // Category filter
     if (selectedCategory && c.categoryKey !== selectedCategory) {
       return false;
@@ -157,12 +297,24 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {}
-    navigation.navigate('BillPrint', {
-      customerId: customer.id,
-      customerName: customer.name,
-      item: customer.category,
-      weightKg: parseInt(customer.weight) || 25,
-      totalAmount: customer.amount === 'बाकी' ? 120 : parseInt(customer.amount.replace('₹', '')) || 100,
+    navigation.navigate('CustomerDashboard', {
+      customerId: customer.customerId || customer.id,
+      customer: {
+        id: customer.customerId || customer.id,
+        name: customer.name,
+        village: customer.village,
+        phone: customer.phone,
+        category: customer.category,
+        weight: customer.weight,
+        weightKg: customer.weightKg || parseFloat(customer.weight) || 0,
+        totalBill: customer.totalBill || (customer.isPending ? customer.pendingBalance || 100 : 100),
+        totalBilled: Number(customer.totalBill) || (customer.pendingBalance || 0) + (customer.paid || 0) || 100,
+        pendingBalance: customer.pendingBalance || (customer.isPending ? 100 : 0),
+        paid: customer.paid || 0,
+        totalPaid: customer.paid || 0,
+        totalWeightMilledKg: customer.weightKg || parseFloat(customer.weight) || 0,
+        totalOrdersCount: customer.totalOrdersCount || 1,
+      },
     });
   };
 
@@ -173,6 +325,7 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
       setSelectedCategory(null);
       setSearchQuery('');
     } else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
@@ -228,6 +381,14 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#15803D']}
+              tintColor="#15803D"
+            />
+          }
         >
           {/* ── 2. SEARCH BOX (Full Width, Name or Village) ── */}
           <View style={styles.searchBoxContainer}>
@@ -364,19 +525,37 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
 
           {/* ── 5. CUSTOMER LIST SECTION ("ग्राहक सूची") ── */}
           <View style={styles.sectionHeadingRow}>
-            <View style={styles.verticalGreenBar} />
-            <Text style={styles.sectionHeadingTitle}>ग्राहक सूची</Text>
+            <View style={styles.sectionHeadingLeft}>
+              <View style={styles.verticalGreenBar} />
+              <Text style={styles.sectionHeadingTitle}>ग्राहक सूची</Text>
+            </View>
 
-            {/* Show All Reset Button when filter is active */}
-            {selectedCategory && (
+            <View style={styles.sectionHeadingActions}>
+              {/* 1-Tap Sequence Sort Toggle Button: 'नए पहले (ऊपर)' vs 'पुराने से नया' */}
               <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setSelectedCategory(null)}
-                style={styles.resetFilterButton}
+                activeOpacity={0.75}
+                onPress={() => {
+                  try { Haptics.selectionAsync(); } catch (e) {}
+                  setSortOrder(prev => prev === 'latest' ? 'first_come' : 'latest');
+                }}
+                style={styles.sortTogglePill}
               >
-                <Text style={styles.resetFilterText}>सभी दिखाएं (✕)</Text>
+                <Text style={styles.sortToggleText}>
+                  {sortOrder === 'latest' ? '⚡ नए पहले (ऊपर)' : '⏱️ पुराने से नया'}
+                </Text>
               </TouchableOpacity>
-            )}
+
+              {/* Show All Reset Button when filter is active */}
+              {selectedCategory && (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedCategory(null)}
+                  style={styles.resetFilterButton}
+                >
+                  <Text style={styles.resetFilterText}>सभी (✕)</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* Customer Horizontal Cards */}
@@ -386,19 +565,27 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
                 <Text style={styles.emptyListText}>कोई ग्राहक रिकॉर्ड नहीं मिला</Text>
               </View>
             ) : (
-              filteredCustomers.map((cust) => (
+              filteredCustomers.map((cust, index) => (
                 <TouchableOpacity
-                  key={cust.id}
+                  key={cust.id || cust._id || cust.customerId || `cust_${index}`}
                   activeOpacity={0.8}
                   onPress={() => handleCustomerPress(cust)}
                   style={styles.customerCard}
                 >
-                  {/* Left: Customer Name · गाँव: Village */}
+                  {/* Left: Token Badge + Customer Name · गाँव: Village */}
                   <View style={styles.custLeftCol}>
-                    <Text style={styles.custNameText} numberOfLines={1}>
-                      {cust.name}
-                      <Text style={styles.custVillageText}> · गाँव: {cust.village}</Text>
-                    </Text>
+                    <View style={styles.custNameHeaderRow}>
+                      <View style={styles.tokenPill}>
+                        <Text style={styles.tokenPillText}>#{index + 1}</Text>
+                      </View>
+                      <Text style={styles.custNameText} numberOfLines={1}>
+                        {cust.name}
+                        <Text style={styles.custVillageText}> · गाँव: {cust.village}</Text>
+                      </Text>
+                    </View>
+                    {cust.timeDisplay ? (
+                      <Text style={styles.custTimeSubText}>🕒 {cust.timeDisplay}</Text>
+                    ) : null}
                   </View>
 
                   {/* Middle: Category · Weight */}
@@ -424,71 +611,21 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
             )}
           </View>
 
-          {/* Decorative Bottom Wave */}
-          <View style={styles.waveFooterWrapper}>
-            <Image
-              source={customerBottomWaveImg}
-              style={styles.bottomWaveImg}
-              resizeMode="stretch"
-            />
-          </View>
-
-          {/* Spacing before bottom dock */}
-          <View style={{ height: 16 }} />
+          {/* Clean seamless spacing before bottom navigation dock */}
+          <View style={{ height: 32 }} />
         </ScrollView>
 
         {/* ── 6. BOTTOM NAVIGATION DOCK (Home | Customer | Bill | Settings) ── */}
         <BottomDock activeTab="khata" onTabPress={handleTabPress} />
       </View>
 
-      {/* ── CALENDAR DATE PICKER MODAL ── */}
-      <Modal
+      {/* ── INTERACTIVE VISUAL CALENDAR MODAL ── */}
+      <ChakkiCalendarModal
         visible={calendarModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCalendarModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setCalendarModalVisible(false)}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📅 तारीख व अवधि चुनें</Text>
-              <TouchableOpacity onPress={() => setCalendarModalVisible(false)}>
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {DATE_PRESETS.map((preset) => {
-              const isSelected = selectedDateKey === preset.key;
-              return (
-                <TouchableOpacity
-                  key={preset.key}
-                  style={[styles.presetRow, isSelected && styles.presetRowSelected]}
-                  onPress={() => {
-                    setSelectedDateKey(preset.key);
-                    setCalendarModalVisible(false);
-                  }}
-                >
-                  <Text style={[styles.presetLabel, isSelected && styles.presetLabelSelected]}>
-                    {preset.label}
-                  </Text>
-                  <Text style={styles.presetDate}>{preset.dateStr}</Text>
-                </TouchableOpacity>
-              );
-            })}
-
-            <TouchableOpacity
-              style={styles.modalDoneButton}
-              onPress={() => setCalendarModalVisible(false)}
-            >
-              <Text style={styles.modalDoneButtonText}>चुनें (Select)</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setCalendarModalVisible(false)}
+        onSelectDate={handleSelectCalendarDate}
+        initialPeriod={selectedDateKey}
+      />
     </View>
   );
 };
@@ -630,6 +767,29 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 10,
   },
+  sectionHeadingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sectionHeadingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sortTogglePill: {
+    backgroundColor: '#E6F5E8',
+    borderColor: '#28A66F',
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 7,
+    paddingVertical: 3.5,
+    marginRight: 6,
+  },
+  sortToggleText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#159B58',
+  },
   verticalGreenBar: {
     width: 3.5,
     height: 18,
@@ -744,17 +904,45 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   custLeftCol: {
-    flex: 1.2,
+    flex: 1.3,
+  },
+  custNameHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+  },
+  tokenPill: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#A5D6A7',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    marginRight: 5,
+    alignSelf: 'center',
+  },
+  tokenPillText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#1B5E20',
   },
   custNameText: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '700',
     color: '#14233B',
+    flexShrink: 1,
   },
   custVillageText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '400',
     color: '#778294',
+  },
+  custTimeSubText: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    color: '#778294',
+    marginTop: 2,
+    marginLeft: 1,
   },
   custMidCol: {
     flex: 1.1,
@@ -786,18 +974,6 @@ const styles = StyleSheet.create({
   emptyListText: {
     fontSize: 14,
     color: '#778294',
-  },
-
-  // 7. Bottom Wave
-  waveFooterWrapper: {
-    width: '100%',
-    height: 38,
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  bottomWaveImg: {
-    width: '100%',
-    height: '100%',
   },
 
   // Modal Styles

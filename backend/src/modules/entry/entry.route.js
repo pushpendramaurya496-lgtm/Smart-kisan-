@@ -6,7 +6,7 @@ const {
   deliverEntry,
   getEntries,
 } = require('./entry.controller');
-const { protect } = require('../auth/auth.middleware');
+const { optionalProtect } = require('../auth/auth.middleware');
 
 /**
  * @swagger
@@ -48,7 +48,7 @@ const { protect } = require('../auth/auth.middleware');
  *                 example: "9829012345"
  *               itemType:
  *                 type: string
- *                 enum: [WHEAT, OIL, MASALA, OTHER]
+ *                 enum: [WHEAT, OIL, MASALA, DARRA, OTHER]
  *                 example: "WHEAT"
  *               ratePerKg:
  *                 type: number
@@ -64,7 +64,7 @@ const { protect } = require('../auth/auth.middleware');
  *       201:
  *         description: एंट्री व टोकन नंबर सफलतापूर्वक जनरेट हुआ
  */
-router.post('/', protect, createEntry);
+router.post('/', optionalProtect, createEntry);
 
 /**
  * @swagger
@@ -94,7 +94,7 @@ router.post('/', protect, createEntry);
  *       200:
  *         description: ग्राहक का खाता और तैयार माल की सूची
  */
-router.get('/pickup-search', protect, searchForPickup);
+router.get('/pickup-search', optionalProtect, searchForPickup);
 
 /**
  * @swagger
@@ -132,7 +132,7 @@ router.get('/pickup-search', protect, searchForPickup);
  *       200:
  *         description: माल सुपुर्द हुआ और खाता अपडेट हुआ
  */
-router.post('/:id/deliver', protect, deliverEntry);
+router.post('/:id/deliver', optionalProtect, deliverEntry);
 
 /**
  * @swagger
@@ -146,6 +146,6 @@ router.post('/:id/deliver', protect, deliverEntry);
  *       200:
  *         description: एंट्री सूची
  */
-router.get('/', protect, getEntries);
+router.get('/', optionalProtect, getEntries);
 
 module.exports = router;

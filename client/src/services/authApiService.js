@@ -172,24 +172,28 @@ export const AuthApiService = {
       }
       return json.data;
     } catch (error) {
-      console.warn('[AuthApiService] Server offline. Using fallback PIN login:', error.message);
-      // If offline demo fallback:
-      if (mpin !== '1234') {
-        throw new Error('गलत सुरक्षा PIN! डेमो कोड 1234 दर्ज करें');
+      if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('fetch')) {
+        console.warn('[AuthApiService] Server offline or network timeout:', error.message);
+      } else {
+        console.warn('[AuthApiService] PIN login warning:', error.message);
       }
-      return {
-        token: 'local_jwt_token_' + Date.now(),
-        user: {
-          phone,
-          role: 'OWNER',
-          isProfileCompleted: true,
-          profile: {
-            ownerName: 'रामलाल शर्मा',
-            chakkiName: 'श्री गणेश फ्लोर मिल',
-            village: 'चाकसू, जयपुर',
+      // If offline demo fallback:
+      if (mpin === '1234') {
+        return {
+          token: 'local_jwt_token_' + Date.now(),
+          user: {
+            phone,
+            role: 'OWNER',
+            isProfileCompleted: true,
+            profile: {
+              ownerName: 'रामलाल शर्मा',
+              chakkiName: 'श्री गणेश फ्लोर मिल',
+              village: 'चाकसू, जयपुर',
+            },
           },
-        },
-      };
+        };
+      }
+      throw error;
     }
   },
 

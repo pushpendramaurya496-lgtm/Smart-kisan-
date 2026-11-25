@@ -22,7 +22,7 @@ const createEntrySchema = Joi.object({
       'string.pattern.base': 'मान्य 10-अंकीय मोबाइल नंबर दर्ज करें',
     }),
   itemType: Joi.string()
-    .valid('WHEAT', 'OIL', 'MASALA', 'OTHER')
+    .valid('WHEAT', 'OIL', 'MASALA', 'DARRA', 'OTHER')
     .default('WHEAT'),
   itemLabel: Joi.string().trim().max(50).optional(),
   ratePerKg: Joi.number().min(0).optional(),
@@ -30,6 +30,8 @@ const createEntrySchema = Joi.object({
   paymentMethod: Joi.string().valid('CASH', 'UPI', 'CREDIT', 'PENDING').default('PENDING'),
   source: Joi.string().valid('MANUAL', 'VOICE').default('MANUAL'),
   notes: Joi.string().trim().max(200).allow('').optional(),
+  customerId: Joi.string().allow('', null).optional(),
+  createNewCustomer: Joi.boolean().optional(),
 });
 
 const deliverEntrySchema = Joi.object({

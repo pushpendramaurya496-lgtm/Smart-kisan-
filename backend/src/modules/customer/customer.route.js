@@ -7,7 +7,7 @@ const {
   getCustomerDashboard,
   recordDebtPayment,
 } = require('./customer.controller');
-const { protect } = require('../auth/auth.middleware');
+const { optionalProtect } = require('../auth/auth.middleware');
 
 /**
  * @swagger
@@ -39,7 +39,7 @@ const { protect } = require('../auth/auth.middleware');
  *       200:
  *         description: ग्राहक सूची सफलतापूर्वक लोड हुई
  */
-router.get('/', protect, searchCustomers);
+router.get('/', optionalProtect, searchCustomers);
 
 /**
  * @swagger
@@ -65,7 +65,7 @@ router.get('/', protect, searchCustomers);
  *       200:
  *         description: वॉइस सर्च द्वारा खोजे गए ग्राहक
  */
-router.post('/voice-search', protect, voiceSearchCustomers);
+router.post('/voice-search', optionalProtect, voiceSearchCustomers);
 
 /**
  * @swagger
@@ -86,7 +86,7 @@ router.post('/voice-search', protect, voiceSearchCustomers);
  *       200:
  *         description: ग्राहक की पूरी पासबुक और आर्डर हिस्ट्री
  */
-router.get('/:id', protect, getCustomerDetail);
+router.get('/:id', optionalProtect, getCustomerDetail);
 
 /**
  * @swagger
@@ -141,7 +141,7 @@ router.get('/:id', protect, getCustomerDetail);
  *                           pendingAmount: { type: number, example: 100 }
  *                           paymentStatus: { type: string, example: "बाकी" }
  */
-router.get('/:id/dashboard', protect, getCustomerDashboard);
+router.get('/:id/dashboard', optionalProtect, getCustomerDashboard);
 
 /**
  * @swagger
@@ -180,6 +180,7 @@ router.get('/:id/dashboard', protect, getCustomerDashboard);
  *       200:
  *         description: खाता अपडेट हुआ और भुगतान दर्ज हुआ
  */
-router.post('/:id/pay-debt', protect, recordDebtPayment);
+router.post('/:id/pay-debt', optionalProtect, recordDebtPayment);
+router.post('/:id/debt-payment', optionalProtect, recordDebtPayment);
 
 module.exports = router;

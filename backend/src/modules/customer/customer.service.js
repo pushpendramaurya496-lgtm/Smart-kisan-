@@ -1,13 +1,24 @@
 const Customer = require('./customer.model');
 const Entry = require('../entry/entry.model');
+const User = require('../auth/auth.model');
 
 class CustomerService {
+  /**
+   * Helper: Resolve active Chakki owner ID
+   */
+  static async resolveOwnerId(ownerId) {
+    if (ownerId) return ownerId;
+    const user = (await User.findOne({ isActive: true })) || (await User.findOne());
+    return user ? user._id : null;
+  }
+
   /**
    * 1. Search Customers by Name, Village or Phone
    */
   static async searchCustomers(ownerId, filters) {
+    const resolvedOwnerId = await CustomerService.resolveOwnerId(ownerId);
     const { query, village } = filters;
-    const filterObj = { ownerId };
+    const filterObj = resolvedOwnerId ? { ownerId: resolvedOwnerId } : {};
 
     if (query && query.trim()) {
       const clean = query.trim();
@@ -37,6 +48,9 @@ class CustomerService {
       return [];
     }
 
+    const resolvedOwnerId = await CustomerService.resolveOwnerId(ownerId);
+    const ownerFilter = resolvedOwnerId ? { ownerId: resolvedOwnerId } : {};
+
     // Clean voice filler words in Hindi/Hinglish
     const cleanQuery = spokenText
       .replace(/(का खाता|खाता दिखाओ|की हिस्ट्री|कितना बाकी है|का रिकॉर्ड|गांव|गाँव|का|की|के|दिखाओ|खोजो)/gi, '')
@@ -56,7 +70,7 @@ class CustomerService {
     });
 
     const customers = await Customer.find({
-      ownerId,
+      ...ownerFilter,
       $or: orConditions,
     })
       .sort({ lastVisitDate: -1 })
@@ -73,13 +87,19 @@ class CustomerService {
    * 3. Get Customer Detail with Full Khata Ledger & Order History
    */
   static async getCustomerDetail(ownerId, customerId) {
-    const customer = await Customer.findOne({ _id: customerId, ownerId });
+    const resolvedOwnerId = await CustomerService.resolveOwnerId(ownerId);
+    const query = { _id: customerId };
+    if (resolvedOwnerId) query.ownerId = resolvedOwnerId;
+
+    const customer = await Customer.findOne(query);
     if (!customer) {
       throw new Error('ग्राहक नहीं मिला');
     }
 
     // Fetch all orders
-    const orders = await Entry.find({ ownerId, customerId })
+    const ordersQuery = { customerId };
+    if (resolvedOwnerId) ordersQuery.ownerId = resolvedOwnerId;
+    const orders = await Entry.find(ordersQuery)
       .sort({ createdAt: -1 })
       .limit(50);
 
@@ -100,82 +120,51 @@ class CustomerService {
    * 4. Get Dedicated Customer Dashboard (ग्राहक डैशबोर्ड व पिछला पूरा रिकॉर्ड)
    */
   static async getCustomerDashboard(ownerId, customerId) {
+    const resolvedOwnerId = await CustomerService.resolveOwnerId(ownerId);
     let customer = null;
+    const baseQuery = resolvedOwnerId ? { ownerId: resolvedOwnerId } : {};
+
     // Check if customerId is a valid ObjectId or try finding by ID / Name
-    if (customerId.match(/^[0-9a-fA-F]{24}$/)) {
-      customer = await Customer.findOne({ _id: customerId, ownerId });
-    } else {
-      customer = await Customer.findOne({ ownerId, name: customerId });
+    if (typeof customerId === 'string' && customerId.match(/^[0-9a-fA-F]{24}$/)) {
+      customer = await Customer.findOne({ _id: customerId, ...baseQuery });
+    }
+    if (!customer) {
+      customer = await Customer.findOne({
+        ...baseQuery,
+        name: { $regex: `^${customerId}$`, $options: 'i' },
+      });
     }
 
     if (!customer) {
-      // Create resilient fallback customer
+      // Empty zero-state fallback customer (no fake dummy numbers)
       return {
         customer: {
           id: customerId,
           name: customerId,
-          village: 'रामपुर',
-          phone: '+91 98765 43210',
-          pendingBalance: 1250,
-          totalWeightMilledKg: 75,
-          totalBilledAmount: 540,
-          totalPaidAmount: 470,
-          totalOrdersCount: 3,
+          village: '',
+          phone: '',
+          pendingBalance: 0,
+          totalWeightMilledKg: 0,
+          totalBilledAmount: 0,
+          totalPaidAmount: 0,
+          totalOrdersCount: 0,
         },
         financialSummary: {
-          pendingBalance: 1250,
-          status: 'बाकी',
-          totalBilled: 540,
-          totalPaid: 470,
-          totalWeightMilledKg: 75,
-          totalOrdersCount: 3,
+          pendingBalance: 0,
+          status: 'साफ',
+          totalBilled: 0,
+          totalPaid: 0,
+          totalWeightMilledKg: 0,
+          totalOrdersCount: 0,
         },
-        history: [
-          {
-            id: 'h1',
-            date: '20-11-2026',
-            tokenNumber: '#24',
-            itemLabel: 'गेहूं (पिसाई)',
-            weightKg: 25,
-            ratePerKg: 4,
-            totalAmount: 100,
-            amountPaid: 0,
-            pendingAmount: 100,
-            paymentStatus: 'बाकी',
-            isDelivered: true,
-          },
-          {
-            id: 'h2',
-            date: '15-11-2026',
-            tokenNumber: '#18',
-            itemLabel: 'सरसों (तेल पिराई)',
-            weightKg: 10,
-            ratePerKg: 20,
-            totalAmount: 200,
-            amountPaid: 0,
-            pendingAmount: 200,
-            paymentStatus: 'बाकी',
-            isDelivered: true,
-          },
-          {
-            id: 'h3',
-            date: '10-11-2026',
-            tokenNumber: '#12',
-            itemLabel: 'आटा (15 kg)',
-            weightKg: 15,
-            ratePerKg: 5,
-            totalAmount: 75,
-            amountPaid: 75,
-            pendingAmount: 0,
-            paymentStatus: 'चुकाया',
-            isDelivered: true,
-          },
-        ],
+        history: [],
       };
     }
 
     // Fetch past entries / orders
-    const orders = await Entry.find({ ownerId, customerId: customer._id })
+    const orderQuery = { customerId: customer._id };
+    if (resolvedOwnerId) orderQuery.ownerId = resolvedOwnerId;
+    const orders = await Entry.find(orderQuery)
       .sort({ createdAt: -1 })
       .limit(50);
 
@@ -222,7 +211,23 @@ class CustomerService {
    * 5. Settle Debt / Receive Direct Payment into Customer Khata
    */
   static async recordDebtPayment(ownerId, customerId, data) {
-    const customer = await Customer.findOne({ _id: customerId, ownerId });
+    const resolvedOwnerId = await CustomerService.resolveOwnerId(ownerId);
+    let customer = null;
+    if (typeof customerId === 'string' && customerId.match(/^[0-9a-fA-F]{24}$/)) {
+      if (resolvedOwnerId) {
+        customer = await Customer.findOne({ _id: customerId, ownerId: resolvedOwnerId });
+      }
+      if (!customer) {
+        customer = await Customer.findById(customerId);
+      }
+    }
+    if (!customer) {
+      const nameQuery = resolvedOwnerId ? { ownerId: resolvedOwnerId } : {};
+      customer = await Customer.findOne({
+        ...nameQuery,
+        name: { $regex: `^${customerId}$`, $options: 'i' },
+      });
+    }
     if (!customer) {
       throw new Error('ग्राहक नहीं मिला');
     }
@@ -235,8 +240,8 @@ class CustomerService {
     const paymentMethod = data.paymentMethod || 'CASH';
 
     // Update customer debt balance
-    customer.pendingBalance -= amountPaid;
-    customer.totalPaidAmount += amountPaid;
+    customer.pendingBalance = Math.max(0, (customer.pendingBalance || 0) - amountPaid);
+    customer.totalPaidAmount = (customer.totalPaidAmount || 0) + amountPaid;
     customer.lastVisitDate = new Date();
 
     // Add passbook entry
@@ -252,6 +257,32 @@ class CustomerService {
     });
 
     await customer.save();
+
+    // Also update customer's unpaid entries so they reflect the payment & mark as delivered
+    try {
+      const Entry = require('../entry/entry.model');
+      let remainingToApply = amountPaid;
+      const unpaidEntries = await Entry.find({
+        customerId: customer._id,
+        $or: [{ pendingAmount: { $gt: 0 } }, { isDelivered: false }],
+      }).sort({ createdAt: 1 });
+
+      for (const entry of unpaidEntries) {
+        const entryPending = Number(entry.pendingAmount) || Math.max(0, (Number(entry.totalAmount) || 0) - (Number(entry.amountPaid) || 0));
+        const applyAmt = remainingToApply > 0 ? Math.min(entryPending, remainingToApply) : 0;
+        entry.amountPaid = (Number(entry.amountPaid) || 0) + applyAmt;
+        entry.pendingAmount = Math.max(0, entryPending - applyAmt);
+        entry.paymentStatus = entry.pendingAmount <= 0 ? 'PAID' : 'PARTIAL';
+        entry.isDelivered = true;
+        entry.millingStatus = 'DELIVERED';
+        entry.handoverDate = new Date();
+        if (paymentMethod) entry.paymentMethod = paymentMethod;
+        await entry.save();
+        remainingToApply -= applyAmt;
+      }
+    } catch (entryErr) {
+      console.warn('Failed to apply debt payment to entries:', entryErr.message);
+    }
 
     const receiptText = `🌾 *किसान साथी | चक्की स्मार्ट AI*\n━━━━━━━━━━━━━━━━━━━━\n👤 *ग्राहक:* ${customer.name} (${customer.village})\n💵 *जमा राशि:* ₹${amountPaid} (${paymentMethod})\n${
       customer.pendingBalance > 0

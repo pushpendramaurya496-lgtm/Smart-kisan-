@@ -162,7 +162,62 @@ const SettingsIcon = ({ color, size = 22 }) => (
   </View>
 );
 
-export const BottomDock = ({ activeTab = 'home', onTabPress }) => {
+const HistoryIcon = ({ color, size = 22 }) => (
+  <View
+    style={{
+      width: size,
+      height: size,
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+  >
+    <View
+      style={{
+        width: 17,
+        height: 17,
+        borderRadius: 8.5,
+        borderWidth: 1.8,
+        borderColor: color,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {/* Clock Hands: Hour (vertical) and Minute (horizontal right) */}
+      <View
+        style={{
+          position: 'absolute',
+          width: 1.6,
+          height: 5.5,
+          backgroundColor: color,
+          top: 2.8,
+          borderRadius: 0.8,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          width: 4.8,
+          height: 1.6,
+          backgroundColor: color,
+          right: 3.2,
+          top: 6.8,
+          borderRadius: 0.8,
+        }}
+      />
+      {/* Center Pin */}
+      <View
+        style={{
+          width: 2.5,
+          height: 2.5,
+          borderRadius: 1.25,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  </View>
+);
+
+export const BottomDock = ({ activeTab = 'home', onTabPress, backgroundColor = null }) => {
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom || 0, 8);
 
@@ -170,11 +225,12 @@ export const BottomDock = ({ activeTab = 'home', onTabPress }) => {
     { id: 'home', label: 'Home', icon: HouseIcon },
     { id: 'khata', label: 'Customer', icon: UsersIcon },
     { id: 'bill', label: 'Bill', icon: BillIcon },
+    { id: 'history', label: 'History', icon: HistoryIcon },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 
   return (
-    <View style={[styles.bottomBar, { paddingBottom: bottomPadding }]}>
+    <View style={[styles.bottomBar, { paddingBottom: bottomPadding }, backgroundColor ? { backgroundColor } : null]}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         const IconComponent = tab.icon;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,16 @@ import {
   ScrollView,
   Modal,
   Dimensions,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BottomDock } from '../components/BottomDock';
+import { ChakkiCalendarModal } from '../components/ChakkiCalendarModal';
+import { API_BASE_URL } from '../services/apiConfig';
+import { useChakki } from '../context/ChakkiContext';
 
 const { width } = Dimensions.get('window');
 
@@ -200,108 +205,139 @@ const GrindingTypeIcon = ({ type }) => {
   }
 };
 
-// ─── DATA PER TAB (TODAY, WEEKLY, MONTHLY, TOTAL) ───────────────────────────
-const DASHBOARD_DATA = {
-  today: {
-    periodTitle: 'आज की कुल कमाई',
-    totalEarning: '₹4,850',
-    dateLabel: '23 नवंबर 2026',
-    stats: {
-      customers: '32',
-      pisaiKg: '485 KG',
-      cash: '₹3,500',
-      online: '₹1,000',
-    },
-    payment: {
-      pending: '₹350',
-      total: '₹4,850',
-    },
-    services: [
-      { id: 'oil', name: 'तेल पिराई', customers: '12 ग्राहक', amount: '₹2,000', type: 'oil' },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '10 ग्राहक', amount: '₹1,500', type: 'haldi' },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '10 ग्राहक', amount: '₹1,350', type: 'darra' },
-      { id: 'atta', name: 'आटा पिसाई', customers: '8 ग्राहक', amount: '₹1,000', type: 'atta' },
-    ],
+// ─── EMPTY STATE TEMPLATE (REAL DATA DEFAULT WITH 0s) ──────────────────────
+const EMPTY_DASHBOARD = {
+  periodTitle: 'आज की कुल कमाई',
+  totalEarning: '₹0',
+  dateLabel: 'आज की तारीख',
+  stats: {
+    customers: '0',
+    pisaiKg: '0 KG',
+    cash: '₹0',
+    online: '₹0',
   },
-  weekly: {
-    periodTitle: 'इस हफ्ते की कुल कमाई',
-    totalEarning: '₹31,200',
-    dateLabel: '17 नवं - 23 नवं 2026',
-    stats: {
-      customers: '214',
-      pisaiKg: '3,240 KG',
-      cash: '₹23,400',
-      online: '₹7,800',
-    },
-    payment: {
-      pending: '₹2,150',
-      total: '₹31,200',
-    },
-    services: [
-      { id: 'oil', name: 'तेल पिराई', customers: '82 ग्राहक', amount: '₹12,800', type: 'oil' },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '64 ग्राहक', amount: '₹9,200', type: 'haldi' },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '38 ग्राहक', amount: '₹5,400', type: 'darra' },
-      { id: 'atta', name: 'आटा पिसाई', customers: '30 ग्राहक', amount: '₹3,800', type: 'atta' },
-    ],
+  payment: {
+    pending: '₹0',
+    total: '₹0',
   },
-  monthly: {
-    periodTitle: 'इस महीने की कुल कमाई',
-    totalEarning: '₹1,28,400',
-    dateLabel: '1 नवं - 23 नवं 2026',
-    stats: {
-      customers: '880',
-      pisaiKg: '13,450 KG',
-      cash: '₹94,500',
-      online: '₹33,900',
-    },
-    payment: {
-      pending: '₹6,800',
-      total: '₹1,28,400',
-    },
-    services: [
-      { id: 'oil', name: 'तेल पिराई', customers: '340 ग्राहक', amount: '₹52,000', type: 'oil' },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '260 ग्राहक', amount: '₹38,000', type: 'haldi' },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '160 ग्राहक', amount: '₹22,400', type: 'darra' },
-      { id: 'atta', name: 'आटा पिसाई', customers: '120 ग्राहक', amount: '₹16,000', type: 'atta' },
-    ],
+  paymentSummary: {
+    pending: '₹0',
+    total: '₹0',
   },
-  total: {
-    periodTitle: 'कुल समग्र कमाई',
-    totalEarning: '₹7,45,800',
-    dateLabel: 'समग्र रिकॉर्ड (All-Time)',
-    stats: {
-      customers: '5,120',
-      pisaiKg: '78,500 KG',
-      cash: '₹5,60,000',
-      online: '₹1,85,800',
-    },
-    payment: {
-      pending: '₹14,200',
-      total: '₹7,45,800',
-    },
-    services: [
-      { id: 'oil', name: 'तेल पिराई', customers: '1,980 ग्राहक', amount: '₹3,10,000', type: 'oil' },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '1,420 ग्राहक', amount: '₹2,15,000', type: 'haldi' },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '940 ग्राहक', amount: '₹1,25,000', type: 'darra' },
-      { id: 'atta', name: 'आटा पिसाई', customers: '780 ग्राहक', amount: '₹95,800', type: 'atta' },
-    ],
-  },
+  services: [
+    { id: 'oil', name: 'तेल पिराई', customers: '0 ग्राहक', amount: '₹0', type: 'oil' },
+    { id: 'haldi', name: 'हल्दी पिसाई', customers: '0 ग्राहक', amount: '₹0', type: 'haldi' },
+    { id: 'darra', name: 'दर्रा पिसाई', customers: '0 ग्राहक', amount: '₹0', type: 'darra' },
+    { id: 'atta', name: 'आटा पिसाई', customers: '0 ग्राहक', amount: '₹0', type: 'atta' },
+  ],
 };
 
 // ─── MAIN EARNING DASHBOARD COMPONENT ───────────────────────────────────────
 export const EarningsDashboardScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 42);
+  const { stats } = useChakki();
 
   const [activeTab, setActiveTab] = useState('today');
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [customDateLabel, setCustomDateLabel] = useState(null);
+  const [customDateIso, setCustomDateIso] = useState(null);
 
-  const currentData = DASHBOARD_DATA[activeTab] || DASHBOARD_DATA.today;
+  // Live real data from backend
+  const [liveData, setLiveData] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchRealData = useCallback(async (periodKey = activeTab, customDate = customDateIso) => {
+    try {
+      let url = `${API_BASE_URL}/dashboard/earnings?period=${periodKey}`;
+      if (customDate) {
+        url += `&date=${encodeURIComponent(customDate)}`;
+      }
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const json = await res.json();
+      if (json && json.success && json.data) {
+        setLiveData(json.data);
+      }
+    } catch (err) {
+      console.warn('Real earnings fetch error (fallback used):', err.message);
+    }
+  }, [activeTab, customDateIso]);
+
+  useEffect(() => {
+    fetchRealData(activeTab, customDateIso);
+  }, [activeTab, customDateIso, fetchRealData, stats?.todayEarnings]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchRealData(activeTab, customDateIso);
+    setRefreshing(false);
+  };
+
+  const handleSelectCalendarDate = (dateObj) => {
+    if (dateObj.period === 'weekly') {
+      setActiveTab('weekly');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else if (dateObj.period === 'monthly') {
+      setActiveTab('monthly');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else if (dateObj.period === 'total') {
+      setActiveTab('total');
+      setCustomDateLabel(null);
+      setCustomDateIso(null);
+    } else {
+      setActiveTab('today');
+      setCustomDateLabel(dateObj.dateFormatted);
+      const y = dateObj.year;
+      const m = String(dateObj.month + 1).padStart(2, '0');
+      const d = String(dateObj.day).padStart(2, '0');
+      setCustomDateIso(`${y}-${m}-${d}`);
+    }
+  };
+
+  const getPeriodTitle = () => {
+    if (customDateLabel) return `${customDateLabel} की कुल कमाई`;
+    if (activeTab === 'weekly') return 'इस हफ्ते की कुल कमाई';
+    if (activeTab === 'monthly') return 'इस महीने की कुल कमाई';
+    if (activeTab === 'total') return 'अब तक की कुल कमाई';
+    return 'आज की कुल कमाई';
+  };
+
+  const fallbackDashboard = {
+    ...EMPTY_DASHBOARD,
+    periodTitle: getPeriodTitle(),
+    totalEarning: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`,
+    dateLabel: customDateLabel || (activeTab === 'total' ? 'समग्र रिकॉर्ड (All-Time)' : 'आज की तारीख'),
+    stats: {
+      customers: String(stats?.totalCustomers || 0),
+      pisaiKg: `${stats?.todayPisaiKg || 0} KG`,
+      cash: `₹${(stats?.cashReceived || 0).toLocaleString('en-IN')}`,
+      online: `₹${(stats?.onlineReceived || 0).toLocaleString('en-IN')}`,
+    },
+    payment: {
+      pending: `₹${(stats?.pendingDebt || 0).toLocaleString('en-IN')}`,
+      total: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`,
+    },
+    paymentSummary: {
+      pending: `₹${(stats?.pendingDebt || 0).toLocaleString('en-IN')}`,
+      total: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`,
+    },
+    services: [
+      { id: 'oil', name: 'तेल पिराई', customers: '0 ग्राहक', amount: '₹0', type: 'oil' },
+      { id: 'haldi', name: 'हल्दी पिसाई', customers: '0 ग्राहक', amount: '₹0', type: 'haldi' },
+      { id: 'darra', name: 'दर्रा पिसाई', customers: '0 ग्राहक', amount: '₹0', type: 'darra' },
+      { id: 'atta', name: 'आटा पिसाई', customers: `${stats?.totalCustomers || 0} ग्राहक`, amount: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`, type: 'atta' },
+    ],
+  };
+
+  const currentData = liveData || fallbackDashboard;
 
   const handleTabPress = (tabId) => {
     if (tabId === 'home') navigation.navigate('Home');
     else if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
@@ -348,6 +384,14 @@ export const EarningsDashboardScreen = ({ navigation }) => {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#0F5132', '#28A66F']}
+              tintColor="#0F5132"
+            />
+          }
         >
           {/* ── 2. EARNING NAVIGATION TABS (One Row, 4 Options) ── */}
           <View style={styles.tabBarContainer}>
@@ -454,7 +498,7 @@ export const EarningsDashboardScreen = ({ navigation }) => {
               style={styles.earningDateRow}
             >
               <CalendarOutlineIcon color="#101D35" size={15} />
-              <Text style={styles.earningDateText}>{currentData.dateLabel}</Text>
+              <Text style={styles.earningDateText}>{customDateLabel || currentData.dateLabel}</Text>
             </TouchableOpacity>
           </LinearGradient>
 
@@ -633,80 +677,13 @@ export const EarningsDashboardScreen = ({ navigation }) => {
         <BottomDock activeTab="home" onTabPress={handleTabPress} />
       </View>
 
-      {/* ── CALENDAR DATE RANGE PICKER MODAL ── */}
-      <Modal
+      {/* ── INTERACTIVE VISUAL MONTH/DAY CALENDAR MODAL ── */}
+      <ChakkiCalendarModal
         visible={calendarModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCalendarModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setCalendarModalVisible(false)}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📅 तारीख व अवधि चुनें</Text>
-              <TouchableOpacity onPress={() => setCalendarModalVisible(false)}>
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Quick Presets */}
-            <TouchableOpacity
-              style={[styles.presetRow, activeTab === 'today' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveTab('today');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>आज (Today)</Text>
-              <Text style={styles.presetDate}>23 नवंबर 2026</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeTab === 'weekly' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveTab('weekly');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>इस हफ्ते (Weekly)</Text>
-              <Text style={styles.presetDate}>17 - 23 नवंबर</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeTab === 'monthly' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveTab('monthly');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>इस महीने (Monthly)</Text>
-              <Text style={styles.presetDate}>1 - 23 नवंबर 2026</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeTab === 'total' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveTab('total');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>कुल समग्र (Total All-time)</Text>
-              <Text style={styles.presetDate}>लाइफटाइम रिकॉर्ड</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.modalDoneButton}
-              onPress={() => setCalendarModalVisible(false)}
-            >
-              <Text style={styles.modalDoneButtonText}>ठीक है</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setCalendarModalVisible(false)}
+        onSelectDate={handleSelectCalendarDate}
+        initialPeriod={activeTab}
+      />
     </View>
   );
 };

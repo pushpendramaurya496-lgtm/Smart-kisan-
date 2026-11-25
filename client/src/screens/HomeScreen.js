@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -12,8 +12,20 @@ import { BottomDock } from '../components/BottomDock';
 import { useChakki } from '../context/ChakkiContext';
 
 export const HomeScreen = ({ navigation }) => {
-  const { stats } = useChakki();
+  const { stats, refreshStats } = useChakki();
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (refreshStats) {
+      refreshStats();
+    }
+    const unsub = navigation?.addListener ? navigation.addListener('focus', () => {
+      if (refreshStats) {
+        refreshStats();
+      }
+    }) : undefined;
+    return unsub;
+  }, [navigation, refreshStats]);
 
   // Safe padding to clear status bar cleanly
   const topSafePadding = Math.max(insets.top || 0, 42) + 2;
@@ -29,6 +41,7 @@ export const HomeScreen = ({ navigation }) => {
   const handleTabPress = (tabId) => {
     if (tabId === 'khata') navigation.navigate('GrahakKhata');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
@@ -55,8 +68,8 @@ export const HomeScreen = ({ navigation }) => {
 
           {/* 3. Today's Earnings Green Gradient Card with Decorative Wheat Stalks */}
           <HeroEarningsCard
-            earnings={stats?.todayEarnings || 2850}
-            growthPercent={stats?.growthPercent || 12}
+            earnings={stats?.todayEarnings ?? 0}
+            growthPercent={stats?.growthPercent ?? 0}
             onPress={() => navigation.navigate('EarningsDashboard')}
           />
 

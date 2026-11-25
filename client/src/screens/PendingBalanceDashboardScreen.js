@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,14 +11,53 @@ import {
   Alert,
   Linking,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { BottomDock } from '../components/BottomDock';
 import { SpeechService } from '../services/speechService';
+import { DashboardApiService } from '../services/dashboardApiService';
+import { CustomerApiService } from '../services/customerApiService';
+import { ChakkiCalendarModal } from '../components/ChakkiCalendarModal';
+import { useChakki } from '../context/ChakkiContext';
+import { getCustomerTimestamp, formatArrivalTime } from '../utils/customerTimestampHelper';
 
 const { width } = Dimensions.get('window');
+
+const formatCleanNum = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const num = Math.round(Number(val) * 100) / 100;
+  return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const normalizeString = (str) => {
+  if (!str) return '';
+  return str
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, ' ');
+};
+
+const getCustomerDedupKey = (c) => {
+  if (!c) return '';
+  const cleanPhone = (c.phone || '').toString().replace(/\D/g, '');
+  if (cleanPhone.length >= 10) {
+    return `ph_${cleanPhone.slice(-10)}`;
+  }
+  const cleanName = normalizeString(c.name || c.customerName);
+  const rawVillage = normalizeString(c.village);
+  const cleanVillage = rawVillage.replace(/^(ग्राम|गाँव|village)\s*/i, '').trim();
+
+  if (cleanName) {
+    const v = (!cleanVillage || cleanVillage === 'ग्राम' || cleanVillage === 'गांव') ? 'default' : cleanVillage;
+    return `cust_${cleanName}_${v}`;
+  }
+  return `id_${String(c.id || c.customerId || c._id || '')}`;
+};
 
 // ─── HIGH-DEFINITION ASSETS ─────────────────────────────────────────────────
 const pendingCalBtnImg = require('../../assets/pending/pending_cal_btn.png');
@@ -48,118 +87,182 @@ const MicrophoneGreenIcon = () => (
   </View>
 );
 
-// ─── INITIAL CUSTOMER DATA ACCORDING TO PROMPT ──────────────────────────────
-const INITIAL_CUSTOMERS = [
-  {
-    id: 'p1',
-    name: 'राजेश',
-    village: 'रामपुर',
-    phone: '9876543210',
-    category: 'दर्रा पिसाई',
-    weight: '40 KG',
-    dateLabel: 'आज',
-    periodKey: 'today',
-    totalBill: 120,
-    paid: 0,
-    pending: 120,
-  },
-  {
-    id: 'p2',
-    name: 'रामलाल',
-    village: 'रामपुर',
-    phone: '9812345678',
-    category: 'तेल पिसाई',
-    weight: '50 KG',
-    dateLabel: 'आज',
-    periodKey: 'today',
-    totalBill: 150,
-    paid: 20,
-    pending: 130,
-  },
-  {
-    id: 'p3',
-    name: 'सुरेश',
-    village: 'खेड़ा',
-    phone: '9765432109',
-    category: 'आटा पिसाई',
-    weight: '30 KG',
-    dateLabel: '20 Nov',
-    periodKey: 'week',
-    totalBill: 100,
-    paid: 50,
-    pending: 50,
-  },
-  {
-    id: 'p4',
-    name: 'मोहन',
-    village: 'नगला',
-    phone: '9898989898',
-    category: 'हल्दी पिसाई',
-    weight: '25 KG',
-    dateLabel: '18 Nov',
-    periodKey: 'week',
-    totalBill: 250,
-    paid: 100,
-    pending: 150,
-  },
-  {
-    id: 'p5',
-    name: 'दिनेश',
-    village: 'खेड़ा',
-    phone: '9871122334',
-    category: 'सरसों पिराई',
-    weight: '80 KG',
-    dateLabel: '12 Nov',
-    periodKey: 'month',
-    totalBill: 600,
-    paid: 200,
-    pending: 400,
-  },
-  {
-    id: 'p6',
-    name: 'श्यामलाल',
-    village: 'रामपुर',
-    phone: '9811223344',
-    category: 'चना पिसाई',
-    weight: '70 KG',
-    dateLabel: '05 Nov',
-    periodKey: 'month',
-    totalBill: 700,
-    paid: 100,
-    pending: 600,
-  },
-];
-
 // ─── MAIN PENDING BALANCE (बाकी हिसाब) SCREEN COMPONENT ──────────────────────
 export const PendingBalanceDashboardScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 42);
+  const { stats, customers: contextCustomers, recordCustomerPayment, refreshStats } = useChakki();
 
-  const [customerList, setCustomerList] = useState(INITIAL_CUSTOMERS);
+  const [customerList, setCustomerList] = useState([]);
+  const [summaryStats, setSummaryStats] = useState({
+    totalPendingAmount: 0,
+    totalPendingCustomers: 0,
+    todayPendingAmount: 0,
+    todayPendingCustomers: 0,
+  });
   const [activeFilter, setActiveFilter] = useState('today'); // 'today' | 'week' | 'month'
   const [searchQuery, setSearchQuery] = useState('');
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Payment Collection Modal State
   const [collectModalVisible, setCollectModalVisible] = useState(false);
   const [selectedCust, setSelectedCust] = useState(null);
   const [payingAmount, setPayingAmount] = useState('');
 
-  // Calculations for Summary Cards
-  const totalPendingAmount = customerList.reduce((sum, c) => sum + c.pending, 0);
-  const totalPendingCustomers = customerList.filter(c => c.pending > 0).length;
+  const fetchPendingData = useCallback(async () => {
+    try {
+      const data = await DashboardApiService.getPending();
+      if (data) {
+        setCustomerList(data.customers || []);
+        setSummaryStats({
+          totalPendingAmount: data.totalPendingAmount || 0,
+          totalPendingCustomers: data.totalPendingCustomers || 0,
+          todayPendingAmount: data.todayPendingAmount || 0,
+          todayPendingCustomers: data.todayPendingCustomers || 0,
+        });
+      }
+    } catch (err) {
+      console.warn('Real pending dues fetch error:', err.message);
+    }
+  }, []);
 
-  const todayPendingAmount = customerList
-    .filter(c => c.periodKey === 'today')
-    .reduce((sum, c) => sum + c.pending, 0);
-  const todayPendingCustomers = customerList.filter(
-    c => c.periodKey === 'today' && c.pending > 0
-  ).length;
+  useEffect(() => {
+    fetchPendingData();
+  }, [fetchPendingData, stats?.pendingDebt]);
+
+  // Auto-reload on screen focus so newly added entries show immediately
+  useEffect(() => {
+    const unsub = navigation?.addListener ? navigation.addListener('focus', () => {
+      fetchPendingData();
+    }) : undefined;
+    return unsub;
+  }, [navigation, fetchPendingData]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchPendingData();
+    setRefreshing(false);
+  };
+
+  // Resilient live-merged debtor list combining contextCustomers and API data
+  const map = new Map();
+
+  // 1. Live context customers with pending balance
+  (contextCustomers || [])
+    .filter((c) => (c.pendingBalance || 0) > 0)
+    .forEach((c) => {
+      const key = getCustomerDedupKey(c);
+      const wt = Number(c.totalPisaiKg || c.weightKg || 40);
+      const pend = Number(c.pendingBalance) || 0;
+      const pd = Number(c.paidAmount || c.paid || 0);
+      const tot = Number(c.totalBill || (pend + pd));
+      const ts = getCustomerTimestamp(c);
+      const timeStr = formatArrivalTime(c) || 'आज';
+
+      map.set(key, {
+        id: c.id || c._id,
+        customerId: c.id || c._id,
+        name: c.name || c.customerName,
+        village: c.village || 'ग्राम',
+        phone: c.phone || '',
+        category: c.lastItemMilled || 'गेहूं पिसाई',
+        weight: `${formatCleanNum(wt)} KG`,
+        weightKg: wt,
+        dateLabel: timeStr,
+        periodKey: 'today',
+        totalBill: formatCleanNum(tot),
+        paid: pd,
+        pending: pend,
+        totalOrdersCount: c.totalOrdersCount || (c.history ? c.history.length : 1),
+        history: c.history || [],
+        timestamp: ts,
+        orderIndex: ts,
+      });
+    });
+
+  // 2. Merge backend API customers
+  (customerList || []).forEach((c) => {
+    const key = getCustomerDedupKey(c);
+    const pend = Number(c.pending || c.pendingBalance || 0);
+    if (pend <= 0) return;
+    const existing = map.get(key);
+    const ts = getCustomerTimestamp(c);
+    const timeStr = formatArrivalTime(c) || c.dateLabel || 'आज';
+
+    if (!existing) {
+      const wt = Number(c.weightKg || parseFloat(c.weight) || 40);
+      const pd = Number(c.paid || c.amountPaid || 0);
+      const tot = Number(c.totalBill || c.totalAmount || (pend + pd));
+      map.set(key, {
+        ...c,
+        id: c.id || c.customerId || c._id,
+        customerId: c.id || c.customerId || c._id,
+        name: c.name || c.customerName,
+        village: c.village || 'ग्राम',
+        phone: c.phone || '',
+        category: c.category || c.itemLabel || 'गेहूं पिसाई',
+        weight: c.weight || `${formatCleanNum(wt)} KG`,
+        weightKg: wt,
+        dateLabel: timeStr,
+        totalBill: formatCleanNum(tot),
+        paid: pd,
+        pending: pend,
+        totalOrdersCount: c.totalOrdersCount || 1,
+        timestamp: ts,
+        orderIndex: ts,
+      });
+    } else {
+      const bestTs = Math.max(existing.timestamp || 0, ts || 0);
+      map.set(key, {
+        ...c,
+        ...existing,
+        id: c.id || c.customerId || c._id || existing.id,
+        customerId: c.customerId || c.id || c._id || existing.customerId || existing.id,
+        weightKg: existing.weightKg || c.weightKg,
+        totalBill: existing.totalBill || c.totalBill,
+        totalOrdersCount: existing.totalOrdersCount || c.totalOrdersCount,
+        dateLabel: existing.dateLabel || timeStr,
+        timestamp: bestTs,
+        orderIndex: bestTs,
+      });
+    }
+  });
+
+  const effectiveCustomerList = Array.from(map.values());
+
+  // Sort by arrival sequence: latest / newest entries at the top
+  effectiveCustomerList.sort((a, b) => {
+    const timeA = a.timestamp || getCustomerTimestamp(a) || 0;
+    const timeB = b.timestamp || getCustomerTimestamp(b) || 0;
+    if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+    return (b.orderIndex || 0) - (a.orderIndex || 0);
+  });
+  const dynamicPendingSum = effectiveCustomerList.reduce((acc, curr) => acc + (Number(curr.pending) || 0), 0);
+
+  // Calculations for Summary Cards with immediate context fallback
+  const totalPendingAmount = Math.max(
+    Number(summaryStats.totalPendingAmount) || 0,
+    Number(stats?.pendingDebt) || 0,
+    dynamicPendingSum
+  );
+  const totalPendingCustomers = Math.max(
+    Number(summaryStats.totalPendingCustomers) || 0,
+    effectiveCustomerList.length
+  );
+  const todayPendingAmount = Math.max(
+    Number(summaryStats.todayPendingAmount) || 0,
+    dynamicPendingSum
+  );
+  const todayPendingCustomers = Math.max(
+    Number(summaryStats.todayPendingCustomers) || 0,
+    effectiveCustomerList.length
+  );
 
   // Filtered customer list
-  const filteredCustomers = customerList.filter((item) => {
-    // 1. Period filter: 'today' shows today's records + reference card Suresh (20 Nov), 'week' shows today+week, 'month' shows all
-    if (activeFilter === 'today' && item.periodKey !== 'today' && item.id !== 'p3') {
+  const filteredCustomers = effectiveCustomerList.filter((item) => {
+    // 1. Period filter
+    if (activeFilter === 'today' && item.periodKey && item.periodKey !== 'today') {
       return false;
     }
     if (activeFilter === 'week' && item.periodKey === 'month') {
@@ -169,9 +272,9 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
     // 2. Search query filter (by customer name or village)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      const matchName = item.name.toLowerCase().includes(q);
-      const matchVillage = item.village.toLowerCase().includes(q);
-      const matchCat = item.category.toLowerCase().includes(q);
+      const matchName = (item.name || '').toLowerCase().includes(q);
+      const matchVillage = (item.village || '').toLowerCase().includes(q);
+      const matchCat = (item.category || '').toLowerCase().includes(q);
       return matchName || matchVillage || matchCat;
     }
 
@@ -183,6 +286,30 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (e) {}
     SpeechService.speak('ग्राहक का नाम या गाँव बोलें...');
+  };
+
+  const handleOpenKhata = (cust) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
+    navigation.navigate('CustomerDashboard', {
+      customerId: cust.customerId || cust.id,
+      customer: {
+        id: cust.customerId || cust.id,
+        name: cust.name,
+        village: cust.village,
+        phone: cust.phone,
+        category: cust.category,
+        weight: cust.weight,
+        weightKg: cust.weightKg || parseFloat(cust.weight) || 0,
+        totalBill: cust.totalBill || cust.pending,
+        totalBilled: Number(cust.totalBill) || (Number(cust.pending) + Number(cust.paid || 0)),
+        pendingBalance: Number(cust.pending) || 0,
+        paid: Number(cust.paid) || 0,
+        totalPaid: Number(cust.paid) || 0,
+        totalOrdersCount: cust.totalOrdersCount || 1,
+      },
+    });
   };
 
   const handleCall = (cust) => {
@@ -222,16 +349,47 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
       return;
     }
 
-    // Update customer record
+    // 1. Immediately update ChakkiContext: increases todayEarnings & decreases pendingDebt
+    if (recordCustomerPayment) {
+      recordCustomerPayment({
+        customerId: selectedCust.customerId || selectedCust.id,
+        customerName: selectedCust.name,
+        amount: amountNum,
+        paymentMethod: 'CASH',
+      });
+    }
+    if (refreshStats) {
+      refreshStats();
+    }
+
+    // 2. Persist debt payment in CustomerApiService / backend
+    CustomerApiService.recordDebtPayment(selectedCust.customerId || selectedCust.id, {
+      amountPaid: amountNum,
+      paymentMethod: 'CASH',
+    }).catch((e) => console.warn('PendingScreen debt payment sync warn:', e.message));
+
+    // 3. Immediately update local summary stats
+    setSummaryStats((prev) => ({
+      ...prev,
+      totalPendingAmount: Math.max(0, (Number(prev.totalPendingAmount) || 0) - amountNum),
+      todayPendingAmount: Math.max(0, (Number(prev.todayPendingAmount) || 0) - amountNum),
+    }));
+
+    // 4. Update customer record in local list & remove if fully settled
     setCustomerList((prev) =>
-      prev.map((c) => {
-        if (c.id === selectedCust.id) {
-          const newPaid = c.paid + amountNum;
-          const newPending = Math.max(0, c.pending - amountNum);
-          return { ...c, paid: newPaid, pending: newPending };
-        }
-        return c;
-      })
+      prev
+        .map((c) => {
+          const isMatch =
+            String(c.id || c.customerId) === String(selectedCust.id || selectedCust.customerId) ||
+            c.name?.toLowerCase() === selectedCust.name?.toLowerCase();
+          if (isMatch) {
+            const newPaid = (Number(c.paid) || 0) + amountNum;
+            const newPending = Math.max(0, (Number(c.pending) || 0) - amountNum);
+            return { ...c, paid: newPaid, pending: newPending };
+          }
+          return c;
+        })
+        .filter((c) => (Number(c.pending) || 0) > 0)
     );
 
     setCollectModalVisible(false);
@@ -243,6 +401,7 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
     if (tabId === 'home') navigation.navigate('Home');
     else if (tabId === 'khata') navigation.navigate('TotalCustomer');
     else if (tabId === 'bill') navigation.navigate('BillPrint', { customerId: 'c1' });
+    else if (tabId === 'history') navigation.navigate('DeliveryHistory');
     else if (tabId === 'settings') navigation.navigate('Settings');
   };
 
@@ -291,6 +450,14 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#15803D']}
+              tintColor="#15803D"
+            />
+          }
         >
           {/* ── 2. SUMMARY CARDS (Two Equal Horizontal Cards) ── */}
           <View style={styles.summaryCardsRow}>
@@ -427,8 +594,13 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
               </View>
             ) : (
               filteredCustomers.map((cust) => (
-                <View key={cust.id} style={styles.customerCard}>
-                  {/* Line 1: Name · गाँव: Village  |  Category · Weight · Date */}
+                <TouchableOpacity
+                  key={cust.id || cust.customerId || cust.name}
+                  activeOpacity={0.88}
+                  onPress={() => handleOpenKhata(cust)}
+                  style={styles.customerCard}
+                >
+                  {/* Line 1: Name · गाँव: Village  |  Category · Weight · Date (Tappable to view Khata Passbook) */}
                   <View style={styles.cardHeaderRow}>
                     <Text style={styles.custNameBold}>
                       {cust.name}
@@ -438,17 +610,18 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
                     <Text style={styles.custCategoryWeightText}>
                       {cust.category} · {cust.weight} ·{' '}
                       <Text style={styles.custDateText}>{cust.dateLabel}</Text>
+                      {' ❯'}
                     </Text>
                   </View>
 
                   {/* Line 2: कुल बिल: ₹... | जमा: ₹... | बाकी: ₹... */}
                   <View style={styles.cardBalanceRow}>
                     <Text style={styles.balanceText}>
-                      कुल बिल: <Text style={styles.balanceVal}>₹{cust.totalBill}</Text>
+                      कुल बिल: <Text style={styles.balanceVal}>₹{formatCleanNum(cust.totalBill)}</Text>
                       {'  |  '}
-                      जमा: <Text style={styles.balanceVal}>₹{cust.paid}</Text>
+                      जमा: <Text style={styles.balanceVal}>₹{formatCleanNum(cust.paid)}</Text>
                       {'  |  '}
-                      बाकी: <Text style={styles.balanceValPending}>₹{cust.pending}</Text>
+                      बाकी: <Text style={styles.balanceValPending}>₹{formatCleanNum(cust.pending)}</Text>
                     </Text>
                   </View>
 
@@ -457,7 +630,10 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
                     {/* Call Button */}
                     <TouchableOpacity
                       activeOpacity={0.75}
-                      onPress={() => handleCall(cust)}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        handleCall(cust);
+                      }}
                       style={styles.actionBtnCall}
                     >
                       <Text style={styles.actionBtnCallText}>कॉल</Text>
@@ -466,7 +642,10 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
                     {/* WhatsApp Button */}
                     <TouchableOpacity
                       activeOpacity={0.75}
-                      onPress={() => handleWhatsApp(cust)}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        handleWhatsApp(cust);
+                      }}
                       style={styles.actionBtnWhatsApp}
                     >
                       <Text style={styles.actionBtnWhatsAppText}>WhatsApp</Text>
@@ -475,13 +654,16 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
                     {/* Bright Red 'जमा करें' Button */}
                     <TouchableOpacity
                       activeOpacity={0.85}
-                      onPress={() => openCollectModal(cust)}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        openCollectModal(cust);
+                      }}
                       style={styles.actionBtnCollect}
                     >
                       <Text style={styles.actionBtnCollectText}>जमा करें</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </View>
@@ -555,68 +737,17 @@ export const PendingBalanceDashboardScreen = ({ navigation }) => {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── CALENDAR DATE PICKER MODAL ── */}
-      <Modal
+      {/* ── INTERACTIVE VISUAL CALENDAR MODAL ── */}
+      <ChakkiCalendarModal
         visible={calendarModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCalendarModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setCalendarModalVisible(false)}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.calendarModalCard}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📅 तारीख व अवधि चुनें</Text>
-              <TouchableOpacity onPress={() => setCalendarModalVisible(false)}>
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeFilter === 'today' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveFilter('today');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>आज (Today)</Text>
-              <Text style={styles.presetDate}>23 नवंबर 2026</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeFilter === 'week' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveFilter('week');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>इस सप्ताह (Week)</Text>
-              <Text style={styles.presetDate}>17 - 23 नवंबर</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.presetRow, activeFilter === 'month' && styles.presetRowSelected]}
-              onPress={() => {
-                setActiveFilter('month');
-                setCalendarModalVisible(false);
-              }}
-            >
-              <Text style={styles.presetLabel}>इस महीने (Month)</Text>
-              <Text style={styles.presetDate}>नवंबर 2026</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.modalDoneButton}
-              onPress={() => setCalendarModalVisible(false)}
-            >
-              <Text style={styles.modalDoneButtonText}>ठीक है</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setCalendarModalVisible(false)}
+        onSelectDate={(dateObj) => {
+          if (dateObj.period === 'weekly') setActiveFilter('week');
+          else if (dateObj.period === 'monthly') setActiveFilter('month');
+          else setActiveFilter('today');
+        }}
+        initialPeriod={activeFilter === 'week' ? 'weekly' : activeFilter === 'month' ? 'monthly' : 'today'}
+      />
     </View>
   );
 };

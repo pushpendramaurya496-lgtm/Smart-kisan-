@@ -8,6 +8,15 @@ import { Platform, NativeModules } from 'react-native';
  * 3. iOS Simulator & Web (localhost)
  */
 export const getBaseApiUrl = () => {
+  // 1. Web browser
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.location?.hostname) {
+      return `http://${window.location.hostname}:5000/api/v1`;
+    }
+    return 'http://localhost:5000/api/v1';
+  }
+
+  // 2. Physical device or emulator via Expo Metro
   try {
     const scriptURL = NativeModules?.SourceCode?.scriptURL;
     if (scriptURL) {
@@ -21,7 +30,7 @@ export const getBaseApiUrl = () => {
     // fallback below
   }
 
-  // Primary PC Wi-Fi LAN IP
+  // 3. Primary PC Wi-Fi LAN IP (active host)
   const PC_LAN_IP = '192.168.29.166';
   return `http://${PC_LAN_IP}:5000/api/v1`;
 };

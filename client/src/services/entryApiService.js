@@ -17,7 +17,7 @@ export const EntryApiService = {
     try {
       const headers = await getAuthHeaders();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const response = await fetch(`${API_BASE_URL}/entries`, {
         method: 'POST',
@@ -77,7 +77,7 @@ export const EntryApiService = {
       if (token) queryParams.append('token', token);
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const response = await fetch(`${API_BASE_URL}/entries/pickup-search?${queryParams.toString()}`, {
         method: 'GET',
@@ -104,7 +104,7 @@ export const EntryApiService = {
     try {
       const headers = await getAuthHeaders();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const response = await fetch(`${API_BASE_URL}/entries/${entryId}/deliver`, {
         method: 'POST',
@@ -135,7 +135,7 @@ export const EntryApiService = {
     try {
       const headers = await getAuthHeaders();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const response = await fetch(`${API_BASE_URL}/customers/${customerId}/pay-debt`, {
         method: 'POST',

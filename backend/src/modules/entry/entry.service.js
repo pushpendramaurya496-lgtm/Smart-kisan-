@@ -1,28 +1,78 @@
+const mongoose = require('mongoose');
 const Entry = require('./entry.model');
 const Customer = require('../customer/customer.model');
 const User = require('../auth/auth.model');
 
 class EntryService {
   /**
+   * Helper: Resolve or create default Chakki owner
+   */
+  static async resolveOwner(ownerId) {
+    if (ownerId) {
+      const owner = await User.findById(ownerId);
+      if (owner) return owner;
+    }
+    let owner = (await User.findOne({ isActive: true })) || (await User.findOne());
+    if (!owner) {
+      owner = await User.create({
+        name: 'चक्की संचालक',
+        phone: '9876543210',
+        businessName: 'किसान आटा चक्की',
+        village: 'रामपुरा',
+        isActive: true,
+        defaultRates: {
+          wheatPisaiPerKg: 3.5,
+          oilExtractionPerKg: 7,
+          masalaGrindingPerKg: 15,
+        },
+      });
+    }
+    return owner;
+  }
+
+  /**
    * 1. Create New Milling Entry (Manual or Voice)
    */
   static async createEntry(ownerId, data) {
-    const owner = await User.findById(ownerId);
-    if (!owner) {
-      throw new Error('चक्की मालिक नहीं मिला');
-    }
+    const owner = await EntryService.resolveOwner(ownerId);
+    ownerId = owner._id;
 
     const normalizedName = data.name.trim();
     const normalizedVillage = data.village.trim();
     const phone = data.phone ? data.phone.trim() : '';
 
     // 1. Find or create Customer
-    let customer = await Customer.findOne({
-      ownerId,
-      name: new RegExp(`^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      village: new RegExp(`^${normalizedVillage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-    });
+    let customer = null;
 
+    // A) If a specific valid MongoDB customerId was passed
+    if (data.customerId && mongoose.Types.ObjectId.isValid(data.customerId)) {
+      customer = await Customer.findOne({ _id: data.customerId, ownerId });
+    }
+
+    // B) If not creating a separate customer profile, try matching by phone or (name + village)
+    if (!customer && !data.createNewCustomer) {
+      if (phone) {
+        // High accuracy: match by phone
+        customer = await Customer.findOne({ ownerId, phone });
+      }
+      if (!customer && normalizedName) {
+        // Match by exact Name + Village
+        customer = await Customer.findOne({
+          ownerId,
+          name: new RegExp(`^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          village: new RegExp(`^${normalizedVillage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      }
+      if (!customer && normalizedName) {
+        // Fallback match by Name only
+        customer = await Customer.findOne({
+          ownerId,
+          name: new RegExp(`^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      }
+    }
+
+    // C) If still no customer found, or createNewCustomer was requested, create a brand-new Customer
     if (!customer) {
       customer = await Customer.create({
         ownerId,
@@ -80,6 +130,8 @@ class EntryService {
     });
     const tokenNumber = String(countToday + 1);
 
+    const resolvedPaymentMethod = data.paymentMethod || (amountPaid >= totalAmount ? 'CASH' : (amountPaid > 0 ? 'CASH' : 'CREDIT'));
+
     // 6. Create Entry Record
     const entry = await Entry.create({
       ownerId,
@@ -96,7 +148,7 @@ class EntryService {
       amountPaid,
       pendingAmount,
       paymentStatus,
-      paymentMethod: data.paymentMethod || (amountPaid > 0 ? 'CASH' : 'PENDING'),
+      paymentMethod: resolvedPaymentMethod,
       millingStatus: 'RECEIVED',
       isDelivered: false,
       source: data.source || 'MANUAL',
@@ -104,12 +156,17 @@ class EntryService {
     });
 
     // 7. Update Customer Ledger & Outstanding Debt
-    customer.pendingBalance += pendingAmount;
+    customer.pendingBalance = Math.round((Number(customer.pendingBalance || 0) + pendingAmount) * 100) / 100;
     customer.totalOrdersCount += 1;
-    customer.totalWeightMilledKg += weightKg;
-    customer.totalBilledAmount += totalAmount;
-    customer.totalPaidAmount += amountPaid;
+    customer.totalWeightMilledKg = Math.round((Number(customer.totalWeightMilledKg || 0) + weightKg) * 100) / 100;
+    customer.totalBilledAmount = Math.round((Number(customer.totalBilledAmount || 0) + totalAmount) * 100) / 100;
+    customer.totalPaidAmount = Math.round((Number(customer.totalPaidAmount || 0) + amountPaid) * 100) / 100;
+    customer.lastMilledItem = itemLabel;
+    customer.lastMilledWeight = weightKg;
     customer.lastVisitDate = new Date();
+    if (phone && (!customer.phone || customer.phone !== phone)) {
+      customer.phone = phone;
+    }
 
     customer.ledgerHistory.unshift({
       date: new Date(),
@@ -119,7 +176,7 @@ class EntryService {
       billedAmount: totalAmount,
       paidAmount: amountPaid,
       balanceAfter: customer.pendingBalance,
-      paymentMethod: data.paymentMethod || (amountPaid > 0 ? 'CASH' : 'CREDIT'),
+      paymentMethod: resolvedPaymentMethod,
       notes: data.notes || '',
     });
 
@@ -143,6 +200,8 @@ class EntryService {
    * 2. Search Customers & Pending Milling Orders for Delivery / Pickup
    */
   static async searchForPickup(ownerId, filters) {
+    const owner = await EntryService.resolveOwner(ownerId);
+    ownerId = owner._id;
     const { name, village, token, phone } = filters;
 
     // Search by Token Number directly
@@ -245,6 +304,8 @@ class EntryService {
    * 3. Handover / Deliver Milling Order & Settle Payment
    */
   static async deliverEntry(ownerId, entryId, data) {
+    const owner = await EntryService.resolveOwner(ownerId);
+    ownerId = owner._id;
     const entry = await Entry.findOne({ _id: entryId, ownerId });
     if (!entry) {
       throw new Error('पिसाई ऑर्डर रिकॉर्ड नहीं मिला');
@@ -324,6 +385,8 @@ class EntryService {
    * 4. Get Recent Entries for Dashboard & Feed
    */
   static async getEntries(ownerId, filters = {}) {
+    const owner = await EntryService.resolveOwner(ownerId);
+    ownerId = owner._id;
     const query = { ownerId };
     if (filters.isDelivered !== undefined) {
       query.isDelivered = filters.isDelivered === 'true' || filters.isDelivered === true;

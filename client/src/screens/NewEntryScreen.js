@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,10 +22,42 @@ import { SpeechService } from '../services/speechService';
 const NAME_SUGGESTIONS = ['रामलाल शर्मा', 'कजोड़ मल मीणा', 'सुरेश जाट', 'कैलाश गुर्जर', 'महावीर सिंह', 'राकेश कुमावत'];
 const VILLAGE_SUGGESTIONS = ['रामपुरा', 'चाकसू', 'दांतली', 'किशनपुरा', 'बस्सी', 'रेनवाल', 'कोटखावदा'];
 
+// Clean number format to eliminate ugly floating-point tails (.20000000000005)
+const formatCleanNum = (val) => {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const num = Math.round(Number(val) * 100) / 100;
+  return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const getLastMillingInfo = (cust) => {
+  if (!cust) return null;
+  if (Array.isArray(cust.history) && cust.history.length > 0) {
+    const h = cust.history[0];
+    const crop =
+      h.itemLabel ||
+      (h.item === 'OIL' ? 'सरसों तेल' : h.item === 'MASALA' ? 'मसाला कुटाई' : h.item === 'WHEAT' ? 'गेहूं पिसाई' : (h.item || 'पिसाई'));
+    const wt = (h.weight || h.weightKg) ? `${formatCleanNum(h.weight || h.weightKg)} KG` : '';
+    const dateStr = h.date ? ` (${h.date})` : '';
+    return `${crop}${wt ? ` • ${wt}` : ''}${dateStr}`;
+  }
+  if (Array.isArray(cust.ledgerHistory) && cust.ledgerHistory.length > 0) {
+    const l = cust.ledgerHistory[0];
+    if (l.description) return l.description;
+  }
+  if (cust.lastItemMilled) {
+    const crop =
+      cust.lastItemMilled === 'OIL' ? 'सरसों तेल' : cust.lastItemMilled === 'MASALA' ? 'मसाला कुटाई' : cust.lastItemMilled === 'WHEAT' ? 'गेहूं पिसाई' : cust.lastItemMilled;
+    const wt = cust.lastMilledWeight ? ` • ${formatCleanNum(cust.lastMilledWeight)} KG` : '';
+    const dt = cust.lastMilledDate ? ` (${cust.lastMilledDate})` : '';
+    return `${crop}${wt}${dt}`;
+  }
+  return null;
+};
+
 export const NewEntryScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { defaultType = 'WHEAT' } = route.params || {};
-  const { rates } = useChakki();
+  const { rates, refreshStats, addEntry, customers } = useChakki();
 
   // Mode: 'manual' | 'voice'
   const [entryMode, setEntryMode] = useState('manual');
@@ -37,6 +69,47 @@ export const NewEntryScreen = ({ navigation, route }) => {
   const [weightKg, setWeightKg] = useState('40');
   const [selectedItem, setSelectedItem] = useState(defaultType);
   const [amountPaid, setAmountPaid] = useState('0'); // Default full credit
+
+  // Disambiguation State for Existing Customer Match
+  const [matchedCustomer, setMatchedCustomer] = useState(null);
+  const [useSeparateProfile, setUseSeparateProfile] = useState(false);
+
+  useEffect(() => {
+    const cleanName = name.trim().toLowerCase();
+    const cleanVillage = village.trim().toLowerCase();
+    const rawPhone = phone.trim().replace(/\D/g, '');
+
+    if (cleanName.length >= 2 || rawPhone.length >= 6) {
+      const match = (customers || []).find((c) => {
+        const cPhone = (c.phone || '').replace(/\D/g, '');
+        if (rawPhone.length >= 6 && cPhone && (cPhone.includes(rawPhone) || rawPhone.includes(cPhone))) {
+          return true;
+        }
+        const nameMatch = cleanName.length >= 2 && (c.name || '').toLowerCase() === cleanName;
+        const villageMatch = cleanVillage ? (c.village || '').toLowerCase() === cleanVillage : true;
+        return nameMatch && villageMatch;
+      });
+      setMatchedCustomer(match || null);
+      if (!match) {
+        setUseSeparateProfile(false);
+      }
+    } else {
+      setMatchedCustomer(null);
+      setUseSeparateProfile(false);
+    }
+  }, [name, village, phone, customers]);
+
+  const handleSelectExisting = () => {
+    setUseSeparateProfile(false);
+    if (matchedCustomer) {
+      if (!village && matchedCustomer.village) {
+        setVillage(matchedCustomer.village);
+      }
+      if (!phone && matchedCustomer.phone) {
+        setPhone(matchedCustomer.phone);
+      }
+    }
+  };
 
   // Global full-sentence Voice State
   const [voiceText, setVoiceText] = useState('');
@@ -52,6 +125,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
   const getRate = () => {
     if (selectedItem === 'OIL') return rates?.oilExtractionPerKg || 7;
     if (selectedItem === 'MASALA') return rates?.masalaGrindingPerKg || 15;
+    if (selectedItem === 'DARRA') return rates?.darraPisaiPerKg || 4;
     return rates?.wheatPisaiPerKg || 3;
   };
 
@@ -161,6 +235,9 @@ export const NewEntryScreen = ({ navigation, route }) => {
     } else if (/मसाला|मिर्च|हल्दी|धनिया|masala|spices|chilli/i.test(workingText)) {
       result.itemType = 'MASALA';
       workingText = workingText.replace(/मसाला|मिर्च|हल्दी|धनिया|masala|spices|chilli/gi, ' ');
+    } else if (/दर्रा|दलिया|मक्का|darra|dalya|daliya/i.test(workingText)) {
+      result.itemType = 'DARRA';
+      workingText = workingText.replace(/दर्रा|दलिया|मक्का|darra|dalya|daliya/gi, ' ');
     } else if (/गेहूं|गेहू|कनक|wheat|gehun|gehu|atta|aata/i.test(workingText)) {
       result.itemType = 'WHEAT';
       workingText = workingText.replace(/गेहूं|गेहू|कनक|wheat|gehun|gehu|atta|aata/gi, ' ');
@@ -282,8 +359,8 @@ export const NewEntryScreen = ({ navigation, route }) => {
     setActiveVoiceField(null);
   };
 
-  // 3. Save Entry to Backend
-  const handleSaveEntry = async () => {
+  // 3. Save Entry Instantly (Optimistic 0ms update + Background sync)
+  const handleSaveEntry = () => {
     if (!name.trim()) {
       Alert.alert('त्रुटि', 'कृपया ग्राहक का नाम दर्ज करें');
       return;
@@ -297,70 +374,116 @@ export const NewEntryScreen = ({ navigation, route }) => {
       return;
     }
 
-    setLoading(true);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (e) {}
 
-    try {
-      const res = await EntryApiService.createEntry({
-        name: name.trim(),
-        village: village.trim(),
-        phone: phone.trim(),
-        weightKg: parseFloat(weightKg),
-        itemType: selectedItem,
-        ratePerKg: currentRate,
-        amountPaid: paidNum,
-        source: entryMode === 'voice' ? 'VOICE' : 'MANUAL',
-      });
+    // Prepare item label and today's date
+    const itemLabel = selectedItem === 'OIL'
+      ? 'सरसों (तेल)'
+      : selectedItem === 'MASALA'
+      ? 'मसाला (कुटाई)'
+      : selectedItem === 'DARRA'
+      ? 'दर्रा / दलिया (पिसाई)'
+      : 'गेहूं (पिसाई)';
 
-      setLoading(false);
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (e) {}
+    const d = new Date();
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const dateStr = `${day}-${month}-${year}`;
 
-      // Prepare item label and today's date
-      const itemLabel = selectedItem === 'OIL'
-        ? 'सरसों (तेल)'
-        : selectedItem === 'MASALA'
-        ? 'मसाला (कुटाई)'
-        : 'गेहूं (पिसाई)';
+    // Instant local token number
+    const instantToken = String(Math.floor(Math.random() * 80) + 1);
 
-      const d = new Date();
-      const day = String(d.getDate()).padStart(2, '0');
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const year = d.getFullYear();
-      const dateStr = `${day}-${month}-${year}`;
+    const billPayload = {
+      customerName: name.trim(),
+      village: village.trim(),
+      item: itemLabel,
+      weightKg: parseFloat(weightKg),
+      ratePerKg: currentRate,
+      totalAmount: totalAmount,
+      pendingAmount: pendingAmount,
+      tokenNumber: instantToken,
+      date: dateStr,
+      status: pendingAmount > 0 ? 'भुगतान बाकी' : 'भुगतान चुकता',
+    };
 
-      const billPayload = {
+    // 1. Immediately notify ChakkiContext (0ms delay - Instant UI update across all screens!)
+    const matchedId = (matchedCustomer && !useSeparateProfile)
+      ? (matchedCustomer.id || matchedCustomer._id || matchedCustomer.customerId)
+      : null;
+
+    if (addEntry) {
+      addEntry({
+        customerId: matchedId,
         customerName: name.trim(),
         village: village.trim(),
+        phone: phone.trim(),
         item: itemLabel,
-        weightKg: parseFloat(weightKg),
-        ratePerKg: currentRate,
+        weight: parseFloat(weightKg),
+        rate: currentRate,
+        amountPaid: paidNum,
         totalAmount: totalAmount,
         pendingAmount: pendingAmount,
-        tokenNumber: res.tokenNumber || '1',
-        date: dateStr,
-        status: pendingAmount > 0 ? 'भुगतान बाकी' : 'भुगतान चुकता',
-      };
-
-      SpeechService.speak(`एंट्री दर्ज हो गई। कुल राशि ${totalAmount} रुपए बाकी है।`);
-
-      // Reset form fields
-      setName('');
-      setVillage('');
-      setPhone('');
-      setWeightKg('40');
-      setAmountPaid('0');
-      setVoiceText('');
-
-      // Directly show Photo 2 (BillPrintScreen) - No popup modal
-      navigation.navigate('BillPrint', billPayload);
-    } catch (err) {
-      setLoading(false);
-      Alert.alert('त्रुटि', err.message || 'एंट्री दर्ज करने में विफल');
+        isPaid: pendingAmount === 0,
+        createNew: useSeparateProfile,
+        skipVoice: true,
+      });
     }
+
+    // 2. Single clear voice announcement
+    if (paidNum > 0 && pendingAmount === 0) {
+      SpeechService.announceCashReceived(name.trim(), paidNum);
+    } else if (paidNum > 0 && pendingAmount > 0) {
+      SpeechService.speak(`${name.trim()} से ₹${paidNum} प्राप्त हुए, और ₹${pendingAmount} बाकी दर्ज किए गए।`);
+    } else {
+      SpeechService.announceDebtRecorded(name.trim(), pendingAmount);
+    }
+
+    // 3. Clear inputs and instantly navigate to BillPrintScreen (0ms delay!)
+    const savedName = name.trim();
+    const savedVillage = village.trim();
+    const savedPhone = phone.trim();
+    const savedWeight = parseFloat(weightKg);
+
+    setName('');
+    setVillage('');
+    setPhone('');
+    setWeightKg('40');
+    setAmountPaid('0');
+    setVoiceText('');
+
+    navigation.navigate('BillPrint', billPayload);
+
+    // 4. Asynchronously sync to backend database in background (Non-blocking)
+    const backendPayload = {
+      name: savedName,
+      village: savedVillage,
+      phone: savedPhone,
+      weightKg: savedWeight,
+      itemType: selectedItem,
+      ratePerKg: currentRate,
+      amountPaid: paidNum,
+      source: entryMode === 'voice' ? 'VOICE' : 'MANUAL',
+    };
+
+    const isMongoId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+    if (matchedId && isMongoId(matchedId)) {
+      backendPayload.customerId = matchedId;
+    } else if (useSeparateProfile) {
+      backendPayload.createNewCustomer = true;
+    }
+
+    EntryApiService.createEntry(backendPayload)
+      .then(() => {
+        if (refreshStats) {
+          refreshStats();
+        }
+      })
+      .catch((err) => {
+        console.warn('[NewEntry] Background sync fallback:', err.message);
+      });
   };
 
   const resetForm = () => {
@@ -552,6 +675,84 @@ export const NewEntryScreen = ({ navigation, route }) => {
             </View>
           </View>
 
+          {/* Existing Customer Match & Disambiguation Card */}
+          {matchedCustomer ? (
+            <View style={styles.matchedCustomerCard}>
+              <View style={styles.matchedHeaderRow}>
+                <View style={styles.matchedAvatarCircle}>
+                  <Text style={styles.matchedIcon}>👤</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.matchedTitle}>
+                    पुराना खाता मिला: {matchedCustomer.name} ({matchedCustomer.village || 'ग्राम'})
+                  </Text>
+
+                  {/* 1. Mobile number if available */}
+                  {matchedCustomer.phone ? (
+                    <Text style={styles.matchedPhoneText}>
+                      📞 मोबाइल: {matchedCustomer.phone}
+                    </Text>
+                  ) : null}
+
+                  {/* 2. Cleanly rounded pending balance & total weight (no ugly float tails) */}
+                  <Text style={styles.matchedSubtext}>
+                    {(matchedCustomer.pendingBalance || 0) > 0
+                      ? `🔴 पिछला बकाया: ₹${formatCleanNum(matchedCustomer.pendingBalance)}`
+                      : '🟢 कोई पिछला बकाया नहीं'}
+                    {matchedCustomer.totalPisaiKg ? ` • कुल पिसाई: ${formatCleanNum(matchedCustomer.totalPisaiKg)} KG` : ''}
+                  </Text>
+
+                  {/* 3. Last milled item & date */}
+                  {getLastMillingInfo(matchedCustomer) ? (
+                    <View style={styles.lastMilledPill}>
+                      <Text style={styles.lastMilledText}>
+                        🌾 पिछली बार: {getLastMillingInfo(matchedCustomer)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.disambiguationButtonsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.disambiguationBtn,
+                    !useSeparateProfile ? styles.disambiguationBtnActive : styles.disambiguationBtnInactive,
+                  ]}
+                  onPress={handleSelectExisting}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.disambiguationBtnText,
+                      !useSeparateProfile ? styles.disambiguationBtnTextActive : styles.disambiguationBtnTextInactive,
+                    ]}
+                  >
+                    ✓ इसी खाते में जोड़ें
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.disambiguationBtn,
+                    useSeparateProfile ? styles.disambiguationBtnActive : styles.disambiguationBtnInactive,
+                  ]}
+                  onPress={() => setUseSeparateProfile(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.disambiguationBtnText,
+                      useSeparateProfile ? styles.disambiguationBtnTextActive : styles.disambiguationBtnTextInactive,
+                    ]}
+                  >
+                    ➕ यह अलग ग्राहक हैं (नया खाता)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
           {/* 4. Service / Crop Selection */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>पिसाई का प्रकार</Text>
@@ -560,6 +761,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
                 { id: 'WHEAT', label: '🌾 गेहूं पिसाई', rate: rates?.wheatPisaiPerKg || 3 },
                 { id: 'OIL', label: '🌻 सरसों तेल', rate: rates?.oilExtractionPerKg || 7 },
                 { id: 'MASALA', label: '🌶️ मसाला कुटाई', rate: rates?.masalaGrindingPerKg || 15 },
+                { id: 'DARRA', label: '🌽 दर्रा पिसाई', rate: rates?.darraPisaiPerKg || 4 },
               ].map((item) => (
                 <TouchableOpacity
                   key={item.id}
@@ -1532,5 +1734,92 @@ const styles = StyleSheet.create({
     color: '#0F5132',
     fontSize: 14,
     fontWeight: '800',
+  },
+  matchedCustomerCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 16,
+  },
+  matchedHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  matchedAvatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchedIcon: {
+    fontSize: 20,
+  },
+  matchedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#14532D',
+  },
+  matchedPhoneText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#047857',
+    marginTop: 2,
+  },
+  matchedSubtext: {
+    fontSize: 12.5,
+    color: '#166534',
+    marginTop: 3,
+  },
+  lastMilledPill: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  lastMilledText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#14532D',
+  },
+  disambiguationButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  disambiguationBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disambiguationBtnActive: {
+    backgroundColor: '#0F5132',
+  },
+  disambiguationBtnInactive: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  disambiguationBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  disambiguationBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  disambiguationBtnTextInactive: {
+    color: '#166534',
   },
 });

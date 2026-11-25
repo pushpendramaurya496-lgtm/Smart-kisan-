@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChakki } from '../context/ChakkiContext';
+import { CloudinaryService } from '../services/cloudinaryService';
 
 const farmerProfileImg = require('../../assets/icons/farmer_profile.png');
 
@@ -142,12 +143,25 @@ export const ProfileScreen = ({ navigation }) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {}
 
+    let finalUri = uri;
+    // Upload local file to Cloudinary if it's a freshly picked photo
+    if (uri && (uri.startsWith('file:') || uri.startsWith('content:'))) {
+      try {
+        const uploadRes = await CloudinaryService.uploadImage(uri, { folder: 'profiles' });
+        if (uploadRes.success && uploadRes.url) {
+          finalUri = uploadRes.url;
+        }
+      } catch (uploadErr) {
+        console.warn('Cloudinary upload warning:', uploadErr.message);
+      }
+    }
+
     await updateUserProfile({
       profile: {
         ownerName,
         chakkiName,
         village,
-        profileImage: uri,
+        profileImage: finalUri,
       },
     });
 

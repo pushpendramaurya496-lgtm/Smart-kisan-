@@ -3,10 +3,10 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { StatWheat, StatUsers, StatRupee, StatGear } from './illustrations/AppIllustrations';
 
 export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPress, onPendingBalancePress }) => {
-  const pisaiKg = stats.todayPisaiKg || 210;
-  const customers = stats.totalCustomers || 48;
-  const pendingFormatted = Number(stats.pendingDebt || 1250).toLocaleString('en-IN');
-  const expenseFormatted = Number(stats.totalExpense || 620).toLocaleString('en-IN');
+  const pisaiKg = stats.todayPisaiKg ?? 0;
+  const customers = stats.totalCustomers ?? 0;
+  const pendingFormatted = Number(stats.pendingDebt ?? 0).toLocaleString('en-IN');
+  const expenseFormatted = Number(stats.totalExpense ?? 0).toLocaleString('en-IN');
 
   return (
     <View style={styles.grid}>

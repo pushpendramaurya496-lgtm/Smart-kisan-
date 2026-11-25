@@ -37,8 +37,8 @@ const DecorativeWheatArt = () => (
   </View>
 );
 
-export const HeroEarningsCard = ({ earnings = 2850, growthPercent = 12, onPress }) => {
-  const formattedEarnings = Number(earnings).toLocaleString('en-IN');
+export const HeroEarningsCard = ({ earnings = 0, growthPercent = 0, onPress }) => {
+  const formattedEarnings = Number(earnings || 0).toLocaleString('en-IN');
 
   return (
     <TouchableOpacity

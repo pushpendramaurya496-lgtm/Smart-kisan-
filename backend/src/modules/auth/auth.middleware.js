@@ -34,6 +34,33 @@ const protect = async (req, res, next) => {
   }
 };
 
+/**
+ * Optional Authentication Middleware (sets req.user if token present, but doesn't block if missing)
+ */
+const optionalProtect = async (req, res, next) => {
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+  if (!token) {
+    return next();
+  }
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return next();
+  }
+  try {
+    const user = await User.findById(decoded.id);
+    if (user && user.isActive) {
+      req.user = user;
+    }
+  } catch (error) {
+    // continue without req.user
+  }
+  next();
+};
+
 module.exports = {
   protect,
+  optionalProtect,
 };

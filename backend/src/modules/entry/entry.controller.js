@@ -17,7 +17,7 @@ const createEntry = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const result = await EntryService.createEntry(req.user._id, value);
+  const result = await EntryService.createEntry(req.user?._id, value);
   return ApiResponse.success(res, 201, result, result.message);
 });
 
@@ -31,7 +31,7 @@ const searchForPickup = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const results = await EntryService.searchForPickup(req.user._id, value);
+  const results = await EntryService.searchForPickup(req.user?._id, value);
   return ApiResponse.success(res, 200, results, 'सर्च परिणाम प्राप्त हुए');
 });
 
@@ -45,7 +45,7 @@ const deliverEntry = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const result = await EntryService.deliverEntry(req.user._id, req.params.id, value);
+  const result = await EntryService.deliverEntry(req.user?._id, req.params.id, value);
   return ApiResponse.success(res, 200, result, result.message);
 });
 
@@ -54,7 +54,7 @@ const deliverEntry = asyncHandler(async (req, res) => {
  * GET /api/v1/entries
  */
 const getEntries = asyncHandler(async (req, res) => {
-  const entries = await EntryService.getEntries(req.user._id, req.query);
+  const entries = await EntryService.getEntries(req.user?._id, req.query);
   return ApiResponse.success(res, 200, entries, 'पिसाई रिकॉर्ड लोड हुए');
 });
 

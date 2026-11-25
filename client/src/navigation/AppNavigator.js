@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, BackHandler } from 'react-native';
+import { NavigationContext } from '@react-navigation/native';
 import { GetStartedScreen } from '../screens/GetStartedScreen';
 import { LanguageSelectScreen } from '../screens/LanguageSelectScreen';
 import { LoginPhoneScreen } from '../screens/LoginPhoneScreen';
@@ -19,6 +20,7 @@ import { EarningsDashboardScreen } from '../screens/EarningsDashboardScreen';
 import { TodayMillingDashboardScreen } from '../screens/TodayMillingDashboardScreen';
 import { TotalCustomerDashboardScreen } from '../screens/TotalCustomerDashboardScreen';
 import { PendingBalanceDashboardScreen } from '../screens/PendingBalanceDashboardScreen';
+import { DeliveryHistoryScreen } from '../screens/DeliveryHistoryScreen';
 
 export const AppNavigator = () => {
   // App starts on the GetStarted Welcome Screen as requested
@@ -94,13 +96,20 @@ export const AppNavigator = () => {
       case 'BakiHisab':
       case 'PendingBalanceDashboard':
         return <PendingBalanceDashboardScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'DeliveryHistory':
+      case 'History':
+        return <DeliveryHistoryScreen navigation={navigation} route={{ params: current.params }} />;
       case 'Home':
       default:
         return <HomeScreen navigation={navigation} route={{ params: current.params }} />;
     }
   };
 
-  return <View style={styles.container}>{renderScreen()}</View>;
+  return (
+    <NavigationContext.Provider value={navigation}>
+      <View style={styles.container}>{renderScreen()}</View>
+    </NavigationContext.Provider>
+  );
 };
 
 const styles = StyleSheet.create({

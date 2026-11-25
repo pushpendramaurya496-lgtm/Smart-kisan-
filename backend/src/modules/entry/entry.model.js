@@ -38,7 +38,7 @@ const entrySchema = new mongoose.Schema(
     },
     itemType: {
       type: String,
-      enum: ['WHEAT', 'OIL', 'MASALA', 'OTHER'],
+      enum: ['WHEAT', 'OIL', 'MASALA', 'DARRA', 'OTHER'],
       default: 'WHEAT',
     },
     itemLabel: {

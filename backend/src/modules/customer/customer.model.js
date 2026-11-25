@@ -34,7 +34,7 @@ const ledgerEntrySchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['CASH', 'UPI', 'CREDIT', 'MIXED'],
+      enum: ['CASH', 'UPI', 'CREDIT', 'MIXED', 'PENDING'],
       default: 'CASH',
     },
     notes: {
@@ -90,6 +90,14 @@ const customerSchema = new mongoose.Schema(
       default: 0,
     },
     totalPaidAmount: {
+      type: Number,
+      default: 0,
+    },
+    lastMilledItem: {
+      type: String,
+      default: '',
+    },
+    lastMilledWeight: {
       type: Number,
       default: 0,
     },

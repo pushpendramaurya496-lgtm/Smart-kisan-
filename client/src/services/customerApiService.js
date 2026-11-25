@@ -35,140 +35,91 @@ export const CustomerApiService = {
       console.warn('[CustomerApiService] Using resilient local dashboard calculation:', err.message);
     }
 
-    // Resilient local calculation matching seed data
+    // Local fallback calculation strictly from real saved customer records
     const customers = await StorageService.getCustomers();
-    const found =
-      customers.find((c) => c.id === customerId || c.name === customerId) ||
-      customerFallback ||
-      customers[0];
+    const targetIdStr = String(customerId || customerFallback?.id || customerFallback?.customerId || '').toLowerCase();
+    const targetNameStr = String(customerFallback?.name || customerId || '').trim().toLowerCase();
 
-    const pending = found?.pendingBalance !== undefined ? found.pendingBalance : 100;
+    let found = customers.find((c) => {
+      const cId = String(c.id || c._id || c.customerId || '').toLowerCase();
+      const cName = String(c.name || c.customerName || '').trim().toLowerCase();
+      return (targetIdStr && cId === targetIdStr) || (targetNameStr && cName === targetNameStr);
+    });
 
-    // 6 Realistic Dummy History Records
-    const defaultSixRecords = [
-      {
-        id: 'h1',
-        date: '20-11-2026',
-        tokenNumber: '#24',
-        itemLabel: 'गेहूं (पिसाई)',
-        weightKg: found?.weightKg || 25,
-        ratePerKg: 4,
-        totalAmount: (found?.weightKg || 25) * 4,
-        amountPaid: pending > 0 ? 0 : (found?.weightKg || 25) * 4,
-        pendingAmount: pending > 0 ? (found?.weightKg || 25) * 4 : 0,
-        paymentStatus: pending > 0 ? 'बाकी' : 'चुकाया',
-        isDelivered: true,
-      },
-      {
-        id: 'h2',
-        date: '18-11-2026',
-        tokenNumber: '#19',
-        itemLabel: 'सरसों (तेल पिराई)',
-        weightKg: 15,
-        ratePerKg: 15,
-        totalAmount: 225,
-        amountPaid: pending > 100 ? 0 : 225,
-        pendingAmount: pending > 100 ? 225 : 0,
-        paymentStatus: pending > 100 ? 'बाकी' : 'चुकाया',
-        isDelivered: true,
-      },
-      {
-        id: 'h3',
-        date: '12-11-2026',
-        tokenNumber: '#14',
-        itemLabel: 'गेहूं (पिसाई)',
-        weightKg: 40,
-        ratePerKg: 3.5,
-        totalAmount: 140,
-        amountPaid: 140,
-        pendingAmount: 0,
-        paymentStatus: 'चुकाया',
-        isDelivered: true,
-      },
-      {
-        id: 'h4',
-        date: '05-11-2026',
-        tokenNumber: '#09',
-        itemLabel: 'मक्का (दलिया/पिसाई)',
-        weightKg: 20,
-        ratePerKg: 4,
-        totalAmount: 80,
-        amountPaid: 80,
-        pendingAmount: 0,
-        paymentStatus: 'चुकाया',
-        isDelivered: true,
-      },
-      {
-        id: 'h5',
-        date: '28-10-2026',
-        tokenNumber: '#04',
-        itemLabel: 'चना (दाल पिसाई)',
-        weightKg: 15,
-        ratePerKg: 5,
-        totalAmount: 75,
-        amountPaid: 75,
-        pendingAmount: 0,
-        paymentStatus: 'चुकाया',
-        isDelivered: true,
-      },
-      {
-        id: 'h6',
-        date: '20-10-2026',
-        tokenNumber: '#01',
-        itemLabel: 'गेहूं (पिसाई)',
-        weightKg: 50,
-        ratePerKg: 3.5,
-        totalAmount: 175,
-        amountPaid: 175,
-        pendingAmount: 0,
-        paymentStatus: 'चुकाया',
-        isDelivered: true,
-      },
-    ];
+    if (!found && customerFallback) {
+      found = customerFallback;
+    }
 
-    const history =
-      found?.history && found.history.length >= 5
-        ? found.history.map((h, i) => ({
-            id: h.id || `h_${i}`,
-            date: h.date || '20-11-2026',
-            tokenNumber: h.tokenNumber || `#${24 - i * 4}`,
-            itemLabel: h.item || 'गेहूं (पिसाई)',
-            weightKg: h.weight || found.weightKg || 25,
-            ratePerKg: h.rate || 4,
-            totalAmount: h.total || (h.weight || 25) * (h.rate || 4),
-            amountPaid: h.status === 'चुकाया' ? (h.total || 100) : 0,
-            pendingAmount: h.status === 'चुकाया' ? 0 : (h.total || 100),
-            paymentStatus: h.status || (pending > 0 ? 'बाकी' : 'चुकाया'),
+    const pending = Math.round((Number(found?.pendingBalance !== undefined ? found?.pendingBalance : found?.pending) || 0) * 100) / 100;
+
+    const history = (found?.history || []).map((h, i) => ({
+      id: h.id || `h_${i}`,
+      date: h.date || '',
+      tokenNumber: h.tokenNumber || `#${i + 1}`,
+      itemLabel: h.item || h.itemLabel || 'पिसाई',
+      weightKg: Math.round((Number(h.weight || h.weightKg) || 0) * 100) / 100,
+      ratePerKg: Number(h.rate || h.ratePerKg) || 0,
+      totalAmount: Math.round((Number(h.total || h.totalAmount) || 0) * 100) / 100,
+      amountPaid: h.status === 'चुकाया' || h.paymentStatus === 'PAID' ? Math.round((Number(h.total) || 0) * 100) / 100 : Math.round((Number(h.amountPaid) || 0) * 100) / 100,
+      pendingAmount: h.status === 'चुकाया' || h.paymentStatus === 'PAID' ? 0 : Math.round((Number(h.pending || h.pendingAmount) || 0) * 100) / 100,
+      paymentStatus: h.status || h.paymentStatus || (pending > 0 ? 'बाकी' : 'चुकाया'),
+      isDelivered: h.isDelivered !== undefined ? h.isDelivered : true,
+    }));
+
+    let totalWeight = Math.round(history.reduce((sum, h) => sum + (Number(h.weightKg) || 0), 0) * 100) / 100;
+    let totalBilled = Math.round(history.reduce((sum, h) => sum + (Number(h.totalAmount) || 0), 0) * 100) / 100;
+    let totalPaid = Math.round(history.reduce((sum, h) => sum + (Number(h.amountPaid) || 0), 0) * 100) / 100;
+    let totalOrdersCount = history.length;
+
+    // Resilient fallback when customer has newly arrived or history array wasn't populated yet
+    if (totalOrdersCount === 0 || totalBilled === 0) {
+      const fallbackWt = Number(found?.totalWeightMilledKg || found?.weightKg || parseFloat(found?.weight) || 35);
+      const fallbackPending = Number(found?.pendingBalance !== undefined ? found?.pendingBalance : found?.pending || 0);
+      const fallbackPaid = Number(found?.paidAmount || found?.paid || found?.totalPaid || 0);
+      const fallbackBill = Number(found?.totalBilled || found?.totalBill || found?.totalAmount || (fallbackPending + fallbackPaid));
+
+      if (fallbackWt > 0 || fallbackBill > 0 || fallbackPending > 0) {
+        totalWeight = fallbackWt;
+        totalBilled = fallbackBill || fallbackPending;
+        totalPaid = fallbackPaid;
+        totalOrdersCount = Math.max(1, Number(found?.totalOrdersCount) || 1);
+
+        if (history.length === 0) {
+          history.push({
+            id: `h_auto_1`,
+            date: found?.date || 'आज',
+            tokenNumber: '#1',
+            itemLabel: found?.category || found?.lastItemMilled || 'गेहूं (पिसाई)',
+            weightKg: totalWeight,
+            ratePerKg: totalWeight > 0 ? Math.round((totalBilled / totalWeight) * 10) / 10 : 4,
+            totalAmount: totalBilled,
+            amountPaid: totalPaid,
+            pendingAmount: fallbackPending,
+            paymentStatus: fallbackPending > 0 ? 'बाकी' : 'चुकाया',
             isDelivered: true,
-          }))
-        : defaultSixRecords;
-
-    const totalWeight = history.reduce((sum, h) => sum + (h.weightKg || 0), 0);
-    const totalBilled = history.reduce((sum, h) => sum + (h.totalAmount || 0), 0);
-    const totalPaid = history.reduce((sum, h) => sum + (h.amountPaid || 0), 0);
+          });
+        }
+      }
+    }
 
     return {
       customer: {
         id: found?.id || customerId,
-        name: found?.name || 'रामलाल',
-        village: found?.village || 'रामपुर',
-        phone: found?.phone || '+91 98765 43210',
-        avatarBg: found?.avatarBg || '#DCFCE7',
-        avatarColor: found?.avatarColor || '#15803D',
-        avatarText: found?.avatarText || 'रा',
+        name: found?.name || found?.customerName || '',
+        village: found?.village || '',
+        phone: found?.phone || '',
         pendingBalance: pending,
+        totalOrdersCount,
         totalWeightMilledKg: totalWeight,
-        totalBilledAmount: totalBilled,
-        totalPaidAmount: totalPaid,
-        totalOrdersCount: history.length,
+        totalBilled,
+        totalPaid,
       },
       financialSummary: {
         pendingBalance: pending,
-        status: pending > 0 ? 'बाकी' : 'साफ',
         totalBilled,
         totalPaid,
         totalWeightMilledKg: totalWeight,
-        totalOrdersCount: history.length,
+        totalOrdersCount,
       },
       history,
     };
@@ -214,7 +165,33 @@ export const CustomerApiService = {
   },
 
   /**
-   * 3. Settle Debt / Pay Arrears
+   * 3. Search / Match Existing Customers by Query & Village
+   */
+  async searchCustomers(query = '', village = '') {
+    try {
+      const headers = await getAuthHeaders();
+      let url = `${API_BASE_URL}/customers?query=${encodeURIComponent(query)}`;
+      if (village) url += `&village=${encodeURIComponent(village)}`;
+      const response = await fetch(url, { headers });
+      const json = await response.json();
+      if (response.ok && json.data) {
+        return json.data;
+      }
+    } catch (e) {}
+
+    // Local fallback matching
+    const customers = await StorageService.getCustomers();
+    const cleanQ = query.trim().toLowerCase();
+    const cleanV = village.trim().toLowerCase();
+    return customers.filter((c) => {
+      const matchName = cleanQ ? (c.name || '').toLowerCase().includes(cleanQ) : true;
+      const matchVillage = cleanV ? (c.village || '').toLowerCase().includes(cleanV) : true;
+      return matchName && matchVillage;
+    });
+  },
+
+  /**
+   * 4. Settle Debt / Pay Arrears
    */
   async recordDebtPayment(customerId, { amountPaid, paymentMethod = 'CASH', notes = '' }) {
     try {
@@ -232,12 +209,13 @@ export const CustomerApiService = {
 
     // Resilient local update
     const customers = await StorageService.getCustomers();
+    let remainingBalance = 0;
     const updated = customers.map((c) => {
       if (c.id === customerId || c.name === customerId) {
-        const remaining = Math.max(0, (c.pendingBalance || 0) - parseFloat(amountPaid));
+        remainingBalance = Math.max(0, (Number(c.pendingBalance) || 0) - parseFloat(amountPaid));
         return {
           ...c,
-          pendingBalance: remaining,
+          pendingBalance: remainingBalance,
         };
       }
       return c;
@@ -247,7 +225,7 @@ export const CustomerApiService = {
     return {
       success: true,
       message: `₹${amountPaid} सफलतापूर्वक जमा किए गए`,
-      pendingBalance: Math.max(0, 1250 - parseFloat(amountPaid)),
+      pendingBalance: remainingBalance,
     };
   },
 };

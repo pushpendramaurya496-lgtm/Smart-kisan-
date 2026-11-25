@@ -17,7 +17,7 @@ const searchCustomers = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const customers = await CustomerService.searchCustomers(req.user._id, value);
+  const customers = await CustomerService.searchCustomers(req.user?._id, value);
   return ApiResponse.success(res, 200, customers, 'ग्राहक सूची लोड हुई');
 });
 
@@ -31,7 +31,7 @@ const voiceSearchCustomers = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const result = await CustomerService.voiceSearchCustomers(req.user._id, value.spokenText);
+  const result = await CustomerService.voiceSearchCustomers(req.user?._id, value.spokenText);
   return ApiResponse.success(res, 200, result, 'आवाज द्वारा ग्राहक खोज संपन्न हुई');
 });
 
@@ -40,7 +40,7 @@ const voiceSearchCustomers = asyncHandler(async (req, res) => {
  * GET /api/v1/customers/:id
  */
 const getCustomerDetail = asyncHandler(async (req, res) => {
-  const result = await CustomerService.getCustomerDetail(req.user._id, req.params.id);
+  const result = await CustomerService.getCustomerDetail(req.user?._id, req.params.id);
   return ApiResponse.success(res, 200, result, 'ग्राहक खाता विवरण लोड हुआ');
 });
 
@@ -49,7 +49,7 @@ const getCustomerDetail = asyncHandler(async (req, res) => {
  * GET /api/v1/customers/:id/dashboard
  */
 const getCustomerDashboard = asyncHandler(async (req, res) => {
-  const result = await CustomerService.getCustomerDashboard(req.user._id, req.params.id);
+  const result = await CustomerService.getCustomerDashboard(req.user?._id, req.params.id);
   return ApiResponse.success(res, 200, result, 'ग्राहक डैशबोर्ड व पिछला रिकॉर्ड लोड हुआ');
 });
 
@@ -63,7 +63,7 @@ const recordDebtPayment = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, 400, error.details[0].message);
   }
 
-  const result = await CustomerService.recordDebtPayment(req.user._id, req.params.id, value);
+  const result = await CustomerService.recordDebtPayment(req.user?._id, req.params.id, value);
   return ApiResponse.success(res, 200, result, result.message);
 });
 
