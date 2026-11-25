@@ -7,6 +7,16 @@ import { AuthApiService } from '../services/authApiService';
 import { DashboardApiService } from '../services/dashboardApiService';
 import { translations } from '../constants/translations';
 
+// Clean delivery time formatter (guaranteed to include hour:min am/pm)
+const getDeliveryTimeStrNow = () => {
+  const now = new Date();
+  let hr = now.getHours();
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ampm = hr >= 12 ? 'pm' : 'am';
+  hr = hr % 12 || 12;
+  return `आज, ${String(hr).padStart(2, '0')}:${min} ${ampm}`;
+};
+
 const ChakkiContext = createContext(null);
 
 export const ChakkiProvider = ({ children }) => {
@@ -26,6 +36,7 @@ export const ChakkiProvider = ({ children }) => {
   const [customers, setCustomers] = useState([]);
   const [rates, setRates] = useState(DefaultRates);
   const [loading, setLoading] = useState(true);
+  const [lastDeliveryTimestamp, setLastDeliveryTimestamp] = useState(Date.now());
 
   useEffect(() => {
     loadInitialData();
@@ -201,7 +212,7 @@ export const ChakkiProvider = ({ children }) => {
               totalPisaiKg: Math.round(((Number(cust.totalPisaiKg) || 0) + wt) * 100) / 100,
               pendingBalance: newPending,
               isPending: newPending > 0,
-              isDelivered: false,
+              isDelivered: newPending === 0,
               history: [newEntry, ...(cust.history || [])],
               lastItemMilled: item,
               lastMilledWeight: wt,
@@ -231,7 +242,7 @@ export const ChakkiProvider = ({ children }) => {
             totalPisaiKg: wt,
             pendingBalance: pending,
             isPending: pending > 0,
-            isDelivered: false,
+            isDelivered: pending === 0,
             history: [newEntry],
             lastItemMilled: item,
             lastMilledWeight: wt,
@@ -245,6 +256,29 @@ export const ChakkiProvider = ({ children }) => {
       }
 
       StorageService.saveCustomers(updated);
+
+      // If fully paid, add directly to delivery history so they don't linger in pickup screen
+      if (pending === 0) {
+        const sId = String(customerId || 'cust_' + Date.now());
+        StorageService.markDelivered(sId, {
+          id: sId,
+          customerId: sId,
+          customerName: customerName,
+          village: village || '',
+          phone: phone || '',
+          weightKg: wt,
+          itemLabel: item,
+          totalAmount: calcTotal,
+          amountPaid: paid,
+          pendingAmount: 0,
+          isPaid: true,
+          status: 'ले जा चुके',
+          deliveryTimestamp: Date.now(),
+          deliveryTimeStr: getDeliveryTimeStrNow(),
+        });
+        setLastDeliveryTimestamp(Date.now());
+      }
+
       return updated;
     });
 
@@ -284,18 +318,30 @@ export const ChakkiProvider = ({ children }) => {
 
     const sId = String(customerId || customerName);
 
-    // Save delivered record locally so it moves to Delivery History
-    await StorageService.markDelivered(sId, {
-      id: sId,
-      customerId: sId,
-      customerName,
-      amountPaid: payAmt,
-      pendingAmount: 0,
-      isPaid: true,
-      status: 'ले जा चुके',
-      deliveryTimeStr: 'आज, ' + new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' }),
+    // Resolve real customer info if customerName is missing or looks like an ID
+    let realName = customerName;
+    let realVillage = '';
+    let realItem = 'खाता बकाया भुगतान';
+    const found = customers.find((c) => {
+      const cId = String(c.id || c._id || c.customerId || '');
+      const cName = String(c.name || c.customerName || '').trim();
+      return (
+        (sId && (cId === sId || sId.includes(cId) || cId.includes(sId))) ||
+        (customerName && cName && cName.toLowerCase() === String(customerName).toLowerCase())
+      );
     });
+    if (found) {
+      if (!realName || realName.startsWith('cust_') || realName.startsWith('id_')) {
+        realName = found.name || found.customerName || realName;
+      }
+      realVillage = found.village || '';
+      realItem = found.lastMilledItem || found.itemType || realItem;
+    }
+    if (!realName || realName.startsWith('cust_') || realName.startsWith('id_')) {
+      realName = 'किसान ग्राहक';
+    }
 
+    // Settle ledger debt only (Do NOT create dummy 0 KG delivery items in delivery history)
     setCustomers((prevCustomers) => {
       const updated = prevCustomers.map((cust) => {
         const matchById = customerId && (
@@ -313,7 +359,6 @@ export const ChakkiProvider = ({ children }) => {
             ...cust,
             pendingBalance: newBal,
             isPending: newBal > 0,
-            isDelivered: true,
             lastPaymentDate: new Date().toLocaleDateString('en-GB').replace(/\//g, '-'),
           };
         }
@@ -336,35 +381,87 @@ export const ChakkiProvider = ({ children }) => {
       pendingDebt: Math.max(0, Math.round(((prev?.pendingDebt || 0) - payAmt) * 100) / 100),
     }));
 
+    setLastDeliveryTimestamp(Date.now());
     // Re-sync with backend real statistics
     refreshStats();
   };
 
   // Mark an order as delivered/handed over
-  const markOrderDelivered = async ({ customerId, customerName, village = '', weightKg = 0, itemLabel = 'गेहूं पिसाई', amountPaid = 0, pendingAmount = 0 }) => {
+  const markOrderDelivered = async ({
+    customerId,
+    customerName,
+    village = '',
+    phone = '',
+    weightKg = 0,
+    itemLabel = 'गेहूं पिसाई',
+    amountPaid = 0,
+    pendingAmount = 0,
+    totalAmount = 0,
+  }) => {
     const sId = String(customerId || customerName);
+    const paid = Number(amountPaid) || 0;
+    const pend = Number(pendingAmount) || 0;
+    const wt = Number(weightKg) || 0;
+    const tot = Number(totalAmount) || (paid + pend);
+
+    // Resolve real customer info if customerName is missing or looks like an ID
+    let realName = customerName;
+    let realVillage = village || '';
+    let realPhone = phone || '';
+    let realItem = itemLabel || 'गेहूं पिसाई';
+    const found = customers.find((c) => {
+      const cId = String(c.id || c._id || c.customerId || '');
+      const cName = String(c.name || c.customerName || '').trim();
+      return (
+        (sId && (cId === sId || sId.includes(cId) || cId.includes(sId))) ||
+        (customerName && cName && cName.toLowerCase() === String(customerName).toLowerCase())
+      );
+    });
+    if (found) {
+      if (!realName || realName.startsWith('cust_') || realName.startsWith('id_')) {
+        realName = found.name || found.customerName || realName;
+      }
+      if (!realVillage && found.village) realVillage = found.village;
+      if (!realPhone && found.phone) realPhone = found.phone;
+      if (!realItem && (found.lastMilledItem || found.itemType)) realItem = found.lastMilledItem || found.itemType;
+    }
+    if (!realName || realName.startsWith('cust_') || realName.startsWith('id_')) {
+      realName = 'किसान ग्राहक';
+    }
+
+    const nowMs = Date.now();
+    const timeStr = getDeliveryTimeStrNow();
+
     await StorageService.markDelivered(sId, {
       id: sId,
       customerId: sId,
-      customerName,
-      village,
-      weightKg: Number(weightKg) || 0,
-      itemLabel: itemLabel || 'गेहूं पिसाई',
-      totalAmount: (Number(amountPaid) || 0) + (Number(pendingAmount) || 0),
-      amountPaid: Number(amountPaid) || 0,
-      pendingAmount: Number(pendingAmount) || 0,
-      isPaid: (Number(pendingAmount) || 0) === 0,
+      customerName: realName,
+      village: realVillage,
+      phone: realPhone,
+      weightKg: wt,
+      itemLabel: realItem,
+      totalAmount: tot > 0 ? tot : (paid > 0 ? paid : 0),
+      amountPaid: paid > 0 ? paid : (tot > 0 ? tot : 0),
+      pendingAmount: pend,
+      isPaid: pend === 0,
       status: 'ले जा चुके',
-      deliveryTimeStr: 'आज, ' + new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' }),
+      deliveryTimestamp: nowMs,
+      deliveryTimeStr: timeStr,
+      deliveredAt: new Date(nowMs).toISOString(),
+      handoverDate: new Date(nowMs).toISOString(),
     });
 
     setCustomers((prevCustomers) => {
       const updated = prevCustomers.map((cust) => {
-        const matchById = customerId && String(cust.id || cust._id) === sId;
-        const matchByName = !customerId && cust.name?.toLowerCase() === customerName?.toLowerCase();
+        const matchById = customerId && (String(cust.id) === sId || String(cust._id) === sId || String(cust.customerId) === sId);
+        const matchByName = cust.name?.trim().toLowerCase() === customerName?.trim().toLowerCase();
         if (matchById || matchByName) {
+          const currentBal = Number(cust.pendingBalance) || 0;
+          const newBal = pend > 0 ? pend : Math.max(0, Math.round((currentBal - paid) * 100) / 100);
           return {
             ...cust,
+            pendingBalance: newBal,
+            isPending: newBal > 0,
             isDelivered: true,
           };
         }
@@ -374,6 +471,16 @@ export const ChakkiProvider = ({ children }) => {
       return updated;
     });
 
+    if (paid > 0) {
+      setStats((prev) => ({
+        ...prev,
+        todayEarnings: Math.round(((prev?.todayEarnings || 0) + paid) * 100) / 100,
+        cashReceived: Math.round(((prev?.cashReceived || 0) + paid) * 100) / 100,
+        pendingDebt: Math.max(0, Math.round(((prev?.pendingDebt || 0) - paid) * 100) / 100),
+      }));
+    }
+
+    setLastDeliveryTimestamp(nowMs);
     refreshStats();
   };
 
@@ -404,6 +511,7 @@ export const ChakkiProvider = ({ children }) => {
         addEntry,
         recordCustomerPayment,
         markOrderDelivered,
+        lastDeliveryTimestamp,
         updateUserProfile,
       }}
     >

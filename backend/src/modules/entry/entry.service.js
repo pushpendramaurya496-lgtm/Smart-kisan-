@@ -149,8 +149,9 @@ class EntryService {
       pendingAmount,
       paymentStatus,
       paymentMethod: resolvedPaymentMethod,
-      millingStatus: 'RECEIVED',
-      isDelivered: false,
+      millingStatus: pendingAmount === 0 ? 'DELIVERED' : 'RECEIVED',
+      isDelivered: pendingAmount === 0,
+      handoverDate: pendingAmount === 0 ? new Date() : null,
       source: data.source || 'MANUAL',
       notes: data.notes || '',
     });
@@ -306,17 +307,39 @@ class EntryService {
   static async deliverEntry(ownerId, entryId, data) {
     const owner = await EntryService.resolveOwner(ownerId);
     ownerId = owner._id;
-    const entry = await Entry.findOne({ _id: entryId, ownerId });
+
+    let entry = null;
+    if (entryId && mongoose.Types.ObjectId.isValid(entryId)) {
+      entry = await Entry.findOne({ _id: entryId, ownerId });
+      if (!entry) {
+        // Maybe entryId was actually a customerId
+        entry = await Entry.findOne({ customerId: entryId, ownerId, isDelivered: false }).sort({ createdAt: -1 });
+      }
+    }
+    if (!entry && data?.customerName) {
+      entry = await Entry.findOne({
+        customerName: new RegExp(`^${data.customerName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        ownerId,
+        isDelivered: false,
+      }).sort({ createdAt: -1 });
+    }
+    if (!entry && entryId && mongoose.Types.ObjectId.isValid(entryId)) {
+      // Fallback: check without ownerId if not matched
+      entry = await Entry.findOne({ _id: entryId });
+      if (!entry) {
+        entry = await Entry.findOne({ customerId: entryId, isDelivered: false }).sort({ createdAt: -1 });
+      }
+    }
     if (!entry) {
       throw new Error('पिसाई ऑर्डर रिकॉर्ड नहीं मिला');
     }
     if (entry.isDelivered) {
-      throw new Error('यह माल पहले ही सुपुर्द (Delivered) किया जा चुका है');
+      return { entry, message: 'यह माल पहले ही सुपुर्द किया जा चुका है' };
     }
 
-    const customer = await Customer.findOne({ _id: entry.customerId, ownerId });
-    if (!customer) {
-      throw new Error('ग्राहक रिकॉर्ड नहीं मिला');
+    let customer = await Customer.findOne({ _id: entry.customerId });
+    if (!customer && ownerId) {
+      customer = await Customer.findOne({ _id: entry.customerId, ownerId });
     }
 
     const amountPaid = parseFloat(data.amountPaid) || 0;

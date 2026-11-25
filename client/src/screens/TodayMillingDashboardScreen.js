@@ -79,7 +79,7 @@ const EMPTY_MILLING = {
 export const TodayMillingDashboardScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 42);
-  const { stats } = useChakki();
+  const { stats, customers: contextCustomers } = useChakki();
 
   const [selectedPeriod, setSelectedPeriod] = useState('today');
   const [customDateIso, setCustomDateIso] = useState(null);
@@ -113,7 +113,15 @@ export const TodayMillingDashboardScreen = ({ navigation }) => {
 
   useEffect(() => {
     fetchMillingData(selectedPeriod, customDateIso);
-  }, [selectedPeriod, customDateIso, fetchMillingData, stats?.todayPisaiKg, stats?.totalCustomers, stats?.todayEarnings]);
+  }, [selectedPeriod, customDateIso, fetchMillingData, stats?.todayPisaiKg, stats?.totalCustomers, stats?.todayEarnings, stats?.cashReceived, stats?.pendingDebt, (contextCustomers || []).length]);
+
+  // Auto-reload on screen focus so new entries reflect immediately
+  useEffect(() => {
+    const unsub = navigation?.addListener ? navigation.addListener('focus', () => {
+      fetchMillingData(selectedPeriod, customDateIso);
+    }) : undefined;
+    return unsub;
+  }, [navigation, fetchMillingData, selectedPeriod, customDateIso]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -140,23 +148,139 @@ export const TodayMillingDashboardScreen = ({ navigation }) => {
     }
   };
 
-  const fallbackMilling = {
-    ...EMPTY_MILLING,
-    totalPisai: `${stats?.todayPisaiKg || 0} KG`,
-    totalCustomers: String(stats?.totalCustomers || 0),
-    totalEarnings: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`,
-    totalReceived: `₹${(stats?.cashReceived || 0).toLocaleString('en-IN')}`,
-    label: selectedPeriod === 'yesterday' ? 'कल (Yesterday)' : selectedPeriod === 'week' ? 'इस हफ्ते (This Week)' : 'आज (Today)',
-    dateStr: customDateLabel || (selectedPeriod === 'yesterday' ? 'कल की तारीख' : selectedPeriod === 'week' ? 'इस सप्ताह' : 'आज की तारीख'),
-    details: [
-      { id: 'oil', name: 'तेल पिराई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingOilImg },
-      { id: 'haldi', name: 'हल्दी पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingHaldiImg },
-      { id: 'darra', name: 'दर्रा पिसाई', customers: '0 ग्राहक', weight: '0 KG', amount: '₹0', img: iconMillingDarraImg },
-      { id: 'atta', name: 'आटा पिसाई', customers: `${stats?.totalCustomers || 0} ग्राहक`, weight: `${stats?.todayPisaiKg || 0} KG`, amount: `₹${(stats?.todayEarnings || 0).toLocaleString('en-IN')}`, img: iconMillingAttaImg },
-    ],
+  // ─── RESILIENT LOCAL FALLBACK (Only for TODAY's entries when API is offline) ───
+  const dNow = new Date();
+  const dayStr = String(dNow.getDate()).padStart(2, '0');
+  const monthStr = String(dNow.getMonth() + 1).padStart(2, '0');
+  const yearStr = dNow.getFullYear();
+  const todayDateStr = `${dayStr}-${monthStr}-${yearStr}`;
+  const startOfDayTs = new Date(dNow.getFullYear(), dNow.getMonth(), dNow.getDate()).getTime();
+
+  const isEntryToday = (c) => {
+    if (!c) return false;
+    const lastDate = c.lastMilledDate || (c.history && c.history[0]?.date);
+    if (lastDate && (lastDate === todayDateStr || lastDate === `${dNow.getDate()}/${dNow.getMonth() + 1}/${yearStr}`)) return true;
+    if (c.createdAt) {
+      const ts = new Date(c.createdAt).getTime();
+      if (!isNaN(ts) && ts >= startOfDayTs) return true;
+    }
+    return false;
   };
 
-  const currentData = liveData || fallbackMilling;
+  const todayContextCustomers = (contextCustomers || []).filter(isEntryToday);
+
+  const fallbackCategoryBreakdown = {
+    oil: { customers: 0, weight: 0, amount: 0 },
+    haldi: { customers: 0, weight: 0, amount: 0 },
+    darra: { customers: 0, weight: 0, amount: 0 },
+    atta: { customers: 0, weight: 0, amount: 0 },
+  };
+
+  todayContextCustomers.forEach((c) => {
+    const itemStr = (
+      c.lastItemMilled ||
+      (c.history && c.history[0]?.itemLabel) ||
+      (c.history && c.history[0]?.item) ||
+      ''
+    ).toString().toLowerCase();
+
+    let cat = 'atta';
+    if (itemStr.includes('तेल') || itemStr.includes('सरसों') || itemStr.includes('oil')) {
+      cat = 'oil';
+    } else if (itemStr.includes('मसाला') || itemStr.includes('हल्दी') || itemStr.includes('मिर्च') || itemStr.includes('masala')) {
+      cat = 'haldi';
+    } else if (itemStr.includes('दर्रा') || itemStr.includes('दलिया') || itemStr.includes('darra')) {
+      cat = 'darra';
+    }
+
+    const wt = Math.round((Number(c.lastMilledWeight || c.totalPisaiKg || c.weightKg || (c.history && c.history[0]?.weight) || 0)) * 10) / 10;
+    const paid = Number(c.paidAmount || c.paid || 0);
+    const pend = Number(c.pendingBalance || 0);
+    const amt = Math.round((Number(c.totalBill || (paid + pend) || (c.history && c.history[0]?.total) || 0)) * 100) / 100;
+
+    fallbackCategoryBreakdown[cat].customers += 1;
+    fallbackCategoryBreakdown[cat].weight = Math.round((fallbackCategoryBreakdown[cat].weight + wt) * 10) / 10;
+    fallbackCategoryBreakdown[cat].amount = Math.round((fallbackCategoryBreakdown[cat].amount + amt) * 100) / 100;
+  });
+
+  // Seamlessly merge liveData from backend API with local todayContext additions (0ms instant optimistic sync!)
+  const oilLive = liveData?.details?.find((d) => d.id === 'oil');
+  const haldiLive = liveData?.details?.find((d) => d.id === 'haldi');
+  const darraLive = liveData?.details?.find((d) => d.id === 'darra');
+  const attaLive = liveData?.details?.find((d) => d.id === 'atta');
+
+  const oilCust = Math.max(parseInt(oilLive?.customers) || 0, fallbackCategoryBreakdown.oil.customers);
+  const oilWt = Math.max(parseFloat(oilLive?.weight) || 0, fallbackCategoryBreakdown.oil.weight);
+  const oilAmt = Math.max(parseFloat(String(oilLive?.amount || '0').replace(/[^\d.]/g, '')) || 0, fallbackCategoryBreakdown.oil.amount);
+
+  const haldiCust = Math.max(parseInt(haldiLive?.customers) || 0, fallbackCategoryBreakdown.haldi.customers);
+  const haldiWt = Math.max(parseFloat(haldiLive?.weight) || 0, fallbackCategoryBreakdown.haldi.weight);
+  const haldiAmt = Math.max(parseFloat(String(haldiLive?.amount || '0').replace(/[^\d.]/g, '')) || 0, fallbackCategoryBreakdown.haldi.amount);
+
+  const darraCust = Math.max(parseInt(darraLive?.customers) || 0, fallbackCategoryBreakdown.darra.customers);
+  const darraWt = Math.max(parseFloat(darraLive?.weight) || 0, fallbackCategoryBreakdown.darra.weight);
+  const darraAmt = Math.max(parseFloat(String(darraLive?.amount || '0').replace(/[^\d.]/g, '')) || 0, fallbackCategoryBreakdown.darra.amount);
+
+  const attaCust = Math.max(parseInt(attaLive?.customers) || 0, fallbackCategoryBreakdown.atta.customers);
+  const attaWt = Math.max(parseFloat(attaLive?.weight) || 0, fallbackCategoryBreakdown.atta.weight);
+  const attaAmt = Math.max(parseFloat(String(attaLive?.amount || '0').replace(/[^\d.]/g, '')) || 0, fallbackCategoryBreakdown.atta.amount);
+
+  // Exact sum of the 4 categories
+  const finalWeightKg = Math.round((oilWt + haldiWt + darraWt + attaWt) * 10) / 10;
+  const finalCustCount = oilCust + haldiCust + darraCust + attaCust;
+  const finalEarnings = Math.round((oilAmt + haldiAmt + darraAmt + attaAmt) * 100) / 100;
+  const liveRecvNum = Number(liveData?.totalReceived ? String(liveData.totalReceived).replace(/[^\d.]/g, '') : 0);
+  const finalReceived = Math.max(liveRecvNum, Number(stats?.cashReceived || 0));
+
+  const formatCleanCurrency = (val) => {
+    const num = Math.round((Number(val) || 0) * 100) / 100;
+    return Number.isInteger(num) ? num.toLocaleString('en-IN') : num.toFixed(2);
+  };
+
+  const currentData = {
+    period: selectedPeriod,
+    label: selectedPeriod === 'yesterday' ? 'कल (Yesterday)' : selectedPeriod === 'week' ? 'इस हफ्ते (This Week)' : 'आज (Today)',
+    dateStr: customDateLabel || liveData?.dateStr || (selectedPeriod === 'yesterday' ? 'कल की तारीख' : selectedPeriod === 'week' ? 'इस सप्ताह' : 'आज की तारीख'),
+    totalPisai: `${finalWeightKg} KG`,
+    totalWeightKg: finalWeightKg,
+    totalCustomers: String(finalCustCount),
+    totalEarnings: `₹${formatCleanCurrency(finalEarnings)}`,
+    totalReceived: `₹${formatCleanCurrency(finalReceived)}`,
+    details: [
+      {
+        id: 'oil',
+        name: 'तेल पिराई',
+        customers: `${oilCust} ग्राहक`,
+        weight: `${oilWt} KG`,
+        amount: `₹${formatCleanCurrency(oilAmt)}`,
+        img: iconMillingOilImg,
+      },
+      {
+        id: 'haldi',
+        name: 'हल्दी पिसाई',
+        customers: `${haldiCust} ग्राहक`,
+        weight: `${haldiWt} KG`,
+        amount: `₹${formatCleanCurrency(haldiAmt)}`,
+        img: iconMillingHaldiImg,
+      },
+      {
+        id: 'darra',
+        name: 'दर्रा पिसाई',
+        customers: `${darraCust} ग्राहक`,
+        weight: `${darraWt} KG`,
+        amount: `₹${formatCleanCurrency(darraAmt)}`,
+        img: iconMillingDarraImg,
+      },
+      {
+        id: 'atta',
+        name: 'आटा पिसाई',
+        customers: `${attaCust} ग्राहक`,
+        weight: `${attaWt} KG`,
+        amount: `₹${formatCleanCurrency(attaAmt)}`,
+        img: iconMillingAttaImg,
+      },
+    ],
+  };
 
   // Filter details based on search query
   const filteredDetails = (currentData.details || []).filter(item => {

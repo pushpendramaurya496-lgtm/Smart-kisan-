@@ -100,7 +100,7 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
   const [customDateLabel, setCustomDateLabel] = useState(null);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortOrder, setSortOrder] = useState('latest'); // 'latest' (नया ग्राहक सबसे ऊपर) | 'first_come' (पुराने से नया)
+  const [sortOrder, setSortOrder] = useState('first_come'); // 'first_come' (जो ग्राहक पहले आया वो सबसे ऊपर) | 'latest' (नया ग्राहक सबसे ऊपर)
 
   const fetchCustomersData = useCallback(async (period = selectedDateKey, date = customDateIso) => {
     try {
@@ -237,9 +237,14 @@ export const TotalCustomerDashboardScreen = ({ navigation }) => {
   const effectiveCustomers = Array.from(custMap.values());
 
   // SORT BY ARRIVAL SEQUENCE:
-  // 'latest' (DEFAULT): जो अभी नया आया उसका नाम सबसे ऊपर (#1 Bindo, #2 Jigri...)
-  // 'first_come': जो पहले आया वो ऊपर
+  // 'first_come' (DEFAULT): जो ग्राहक पहले आया वो सबसे ऊपर (#1, #2, #3...)
+  // 'latest': नया ग्राहक ऊपर
   effectiveCustomers.sort((a, b) => {
+    const tokA = a.tokenNumber ? parseInt(a.tokenNumber, 10) : NaN;
+    const tokB = b.tokenNumber ? parseInt(b.tokenNumber, 10) : NaN;
+    if (!isNaN(tokA) && !isNaN(tokB) && tokA !== tokB) {
+      return sortOrder === 'first_come' ? tokA - tokB : tokB - tokA;
+    }
     const timeA = a.timestamp || getCustomerTimestamp(a) || 0;
     const timeB = b.timestamp || getCustomerTimestamp(b) || 0;
     if (sortOrder === 'latest') {

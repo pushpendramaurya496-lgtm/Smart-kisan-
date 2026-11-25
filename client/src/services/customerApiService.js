@@ -18,7 +18,7 @@ export const CustomerApiService = {
     try {
       const headers = await getAuthHeaders();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const response = await fetch(`${API_BASE_URL}/customers/${customerId}/dashboard`, {
         method: 'GET',
@@ -132,7 +132,7 @@ export const CustomerApiService = {
     try {
       const headers = await getAuthHeaders();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const response = await fetch(`${API_BASE_URL}/customers/voice-search`, {
         method: 'POST',

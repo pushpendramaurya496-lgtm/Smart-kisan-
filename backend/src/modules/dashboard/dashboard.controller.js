@@ -206,6 +206,14 @@ const getEarningsBreakdown = asyncHandler(async (req, res) => {
   if (isDbConnected()) {
     try {
       entries = await Entry.find(matchQuery);
+      if (entries.length === 0 && ownerId) {
+        const fallbackMatch = { ...matchQuery };
+        delete fallbackMatch.ownerId;
+        const fallbackEntries = await Entry.find(fallbackMatch);
+        if (fallbackEntries.length > 0) {
+          entries = fallbackEntries;
+        }
+      }
     } catch (dbErr) {
       console.warn('MongoDB query warning in dashboard:', dbErr.message);
     }
@@ -364,6 +372,14 @@ const getMillingBreakdown = asyncHandler(async (req, res) => {
   if (isDbConnected()) {
     try {
       entries = await Entry.find(match).sort({ createdAt: -1 });
+      if (entries.length === 0 && ownerId) {
+        const fallbackMatch = { ...match };
+        delete fallbackMatch.ownerId;
+        const fallbackEntries = await Entry.find(fallbackMatch).sort({ createdAt: -1 });
+        if (fallbackEntries.length > 0) {
+          entries = fallbackEntries;
+        }
+      }
     } catch (e) {
       console.warn('Milling query error:', e.message);
     }
@@ -402,45 +418,84 @@ const getMillingBreakdown = asyncHandler(async (req, res) => {
     }
   }
 
+  // Also include debt settlement payments received in this period from customers
+  if (isDbConnected()) {
+    try {
+      const ledgerMatch = { 'ledgerHistory.type': 'PAYMENT' };
+      if (match.createdAt) {
+        ledgerMatch['ledgerHistory.date'] = match.createdAt;
+      }
+      const debtAgg = await Customer.aggregate([
+        { $unwind: '$ledgerHistory' },
+        { $match: ledgerMatch },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$ledgerHistory.paidAmount' },
+          },
+        },
+      ]);
+      if (debtAgg.length > 0) {
+        const debtPaid = Number(debtAgg[0].total) || 0;
+        totalReceived += debtPaid;
+      }
+    } catch (e) {
+      console.warn('Milling debt aggregation error:', e.message);
+    }
+  }
+
+  const effectiveCustCount = Math.max(entries.length, custSet.size);
+
+  const roundMoney = (val) => Math.round((Number(val) || 0) * 100) / 100;
+  const formatMoney = (val) => {
+    const n = roundMoney(val);
+    return Number.isInteger(n) ? n.toLocaleString('en-IN') : n.toFixed(2);
+  };
+  const roundWeight = (val) => Math.round((Number(val) || 0) * 10) / 10;
+
+  totalWeightKg = roundWeight(totalWeightKg);
+  totalEarnings = roundMoney(totalEarnings);
+  totalReceived = roundMoney(totalReceived);
+
   const details = [
     {
       id: 'oil',
       name: 'तेल पिराई',
       customers: `${catMap.OIL.customers.size} ग्राहक`,
-      weight: `${catMap.OIL.weightKg} KG`,
-      amount: `₹${catMap.OIL.amount.toLocaleString('en-IN')}`,
+      weight: `${roundWeight(catMap.OIL.weightKg)} KG`,
+      amount: `₹${formatMoney(catMap.OIL.amount)}`,
     },
     {
       id: 'haldi',
       name: 'हल्दी पिसाई',
       customers: `${catMap.MASALA.customers.size} ग्राहक`,
-      weight: `${catMap.MASALA.weightKg} KG`,
-      amount: `₹${catMap.MASALA.amount.toLocaleString('en-IN')}`,
+      weight: `${roundWeight(catMap.MASALA.weightKg)} KG`,
+      amount: `₹${formatMoney(catMap.MASALA.amount)}`,
     },
     {
       id: 'darra',
       name: 'दर्रा पिसाई',
       customers: `${catMap.DARRA.customers.size} ग्राहक`,
-      weight: `${catMap.DARRA.weightKg} KG`,
-      amount: `₹${catMap.DARRA.amount.toLocaleString('en-IN')}`,
+      weight: `${roundWeight(catMap.DARRA.weightKg)} KG`,
+      amount: `₹${formatMoney(catMap.DARRA.amount)}`,
     },
     {
       id: 'atta',
       name: 'आटा पिसाई',
       customers: `${catMap.WHEAT.customers.size} ग्राहक`,
-      weight: `${catMap.WHEAT.weightKg} KG`,
-      amount: `₹${catMap.WHEAT.amount.toLocaleString('en-IN')}`,
+      weight: `${roundWeight(catMap.WHEAT.weightKg)} KG`,
+      amount: `₹${formatMoney(catMap.WHEAT.amount)}`,
     },
   ];
 
   return ApiResponse.success(res, 200, {
     period,
     dateStr: dateLabel,
-    totalPisai: `${totalWeightKg.toLocaleString('en-IN')} KG`,
+    totalPisai: `${totalWeightKg} KG`,
     totalWeightKg,
-    totalCustomers: `${custSet.size}`,
-    totalEarnings: `₹${totalEarnings.toLocaleString('en-IN')}`,
-    totalReceived: `₹${totalReceived.toLocaleString('en-IN')}`,
+    totalCustomers: `${effectiveCustCount}`,
+    totalEarnings: `₹${formatMoney(totalEarnings)}`,
+    totalReceived: `₹${formatMoney(totalReceived)}`,
     details,
   }, 'पिसाई का रियल हिसाब लोड हुआ');
 });
@@ -475,6 +530,20 @@ const getPendingBreakdown = asyncHandler(async (req, res) => {
           pendingBalance: { $gt: 0 },
         }),
       ]);
+
+      if (pendingEntries.length === 0 && allPendingCustomers.length === 0 && ownerId) {
+        [pendingEntries, allPendingCustomers] = await Promise.all([
+          Entry.find({
+            $or: [
+              { paymentStatus: { $in: ['UNPAID', 'PARTIAL'] } },
+              { pendingAmount: { $gt: 0 } },
+            ],
+          }).sort({ createdAt: -1 }),
+          Customer.find({
+            pendingBalance: { $gt: 0 },
+          }),
+        ]);
+      }
     } catch (e) {
       console.warn('Pending breakdown query error:', e.message);
     }
@@ -601,7 +670,10 @@ const getCustomersBreakdown = asyncHandler(async (req, res) => {
 
   if (period === 'total') {
     const custMatch = ownerId ? { ownerId } : {};
-    const allCustomers = await Customer.find(custMatch).sort({ lastVisitDate: -1, createdAt: -1 });
+    let allCustomers = await Customer.find(custMatch).sort({ lastVisitDate: -1, createdAt: -1 });
+    if (allCustomers.length === 0 && ownerId) {
+      allCustomers = await Customer.find({}).sort({ lastVisitDate: -1, createdAt: -1 });
+    }
     for (const c of allCustomers) {
       const rawType = (c.lastItemMilled || 'WHEAT').toString().toUpperCase();
       let categoryKey = 'atta';
@@ -775,15 +847,15 @@ const getDeliveryHistory = asyncHandler(async (req, res) => {
 
   // Format delivery records
   const deliveryList = entries.map((e) => {
-    const entryDate = new Date(e.handoverDate || e.createdAt);
-    const timeFormatted = entryDate.toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' });
+    const deliveryDate = new Date(e.handoverDate || e.updatedAt || e.createdAt);
+    const timeFormatted = deliveryDate.toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' });
     const now = new Date();
-    const isToday = entryDate.toDateString() === now.toDateString();
+    const isToday = deliveryDate.toDateString() === now.toDateString();
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = entryDate.toDateString() === yesterday.toDateString();
+    const isYesterday = deliveryDate.toDateString() === yesterday.toDateString();
 
-    let timePrefix = entryDate.toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' });
+    let timePrefix = deliveryDate.toLocaleDateString('hi-IN', { day: 'numeric', month: 'short' });
     if (isToday) timePrefix = 'आज';
     else if (isYesterday) timePrefix = 'कल';
 
@@ -792,10 +864,15 @@ const getDeliveryHistory = asyncHandler(async (req, res) => {
       ? Number(e.pendingAmount)
       : Math.max(0, (Number(e.totalAmount) || 0) - (Number(e.amountPaid) || 0));
 
+    let cleanCustName = (e.customerName || '').trim();
+    if (!cleanCustName || cleanCustName.startsWith('cust_') || cleanCustName.startsWith('id_') || /^\d+$/.test(cleanCustName)) {
+      cleanCustName = 'किसान ग्राहक';
+    }
+
     return {
       id: String(e._id),
       customerId: e.customerId ? String(e.customerId) : String(e._id),
-      customerName: e.customerName || 'अज्ञात',
+      customerName: cleanCustName,
       village: e.village || 'ग्राम',
       phone: e.phone || '',
       itemLabel: e.itemLabel || 'गेहूं पिसाई',
@@ -808,7 +885,10 @@ const getDeliveryHistory = asyncHandler(async (req, res) => {
       isPaid: pAmt === 0,
       status: 'ले जा चुके',
       deliveryTimeStr: timeStr,
-      date: entryDate.toISOString(),
+      date: deliveryDate.toISOString(),
+      handoverDate: e.handoverDate ? e.handoverDate.toISOString() : deliveryDate.toISOString(),
+      createdAt: e.createdAt ? e.createdAt.toISOString() : deliveryDate.toISOString(),
+      deliveryTimestamp: deliveryDate.getTime(),
       tokenNumber: e.tokenNumber || '1',
     };
   });

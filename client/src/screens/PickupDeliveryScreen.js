@@ -47,6 +47,16 @@ const formatCleanNum = (val) => {
   return Number.isInteger(num) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
 };
 
+// Clean delivery time formatter (guaranteed to include hour:min am/pm)
+const getDeliveryTimeStrNow = () => {
+  const now = new Date();
+  let hr = now.getHours();
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ampm = hr >= 12 ? 'pm' : 'am';
+  hr = hr % 12 || 12;
+  return `आज, ${String(hr).padStart(2, '0')}:${min} ${ampm}`;
+};
+
 // Clean text and remove trailing dots or special characters (e.g. "Yes." -> "yes")
 const normalizeString = (str) => {
   if (!str) return '';
@@ -155,9 +165,40 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       const delSet = new Set((deliveredList || []).map((id) => normalizeString(id)));
       setDeliveredKeys(delSet);
 
+      const autoMigrateToHistory = (c) => {
+        const isPaidFull = (c.pendingBalance !== undefined && Number(c.pendingBalance) <= 0) || c.isPaid;
+        if (isPaidFull) {
+          const sId = String(c.id || c.customerId || c._id || c.name);
+          const wt = Number(c.weightKg || c.totalPisaiKg || 0);
+          const amt = Number(c.totalAmount || c.amountPaid || (wt > 0 ? wt * 3.5 : 0));
+          StorageService.markDelivered(sId, {
+            id: sId,
+            customerId: sId,
+            customerName: c.name || c.customerName || 'ग्राहक',
+            village: c.village || '',
+            phone: c.phone || '',
+            weightKg: wt,
+            itemLabel: c.lastMilledItem || 'गेहूं पिसाई',
+            totalAmount: amt,
+            amountPaid: amt,
+            pendingAmount: 0,
+            isPaid: true,
+            status: 'ले जा चुके',
+            deliveryTimestamp: getCustomerTimestamp(c) || Date.now(),
+            deliveryTimeStr: c.timeStr || getDeliveryTimeStrNow(),
+          });
+        }
+      };
+
       const isDelivered = (c) => {
         if (!c) return true;
         if (c.isDelivered) return true;
+        // User requirement: "पैसे देने के बाद यहाँ से हट जाये और तुरंत हिस्ट्री में ऐड हो जाये"
+        const isPaidFull = (c.pendingBalance !== undefined && Number(c.pendingBalance) <= 0) || c.isPaid;
+        if (isPaidFull) {
+          autoMigrateToHistory(c);
+          return true;
+        }
         const id1 = normalizeString(c.id);
         const id2 = normalizeString(c.customerId);
         const id3 = normalizeString(c._id);
@@ -220,7 +261,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       const local = await StorageService.getCustomers();
       const dedupMap = new Map();
       (local || []).forEach((l) => {
-        if (!l || l.isDelivered) return;
+        if (!l || l.isDelivered || (l.pendingBalance !== undefined && Number(l.pendingBalance) <= 0) || l.isPaid) return;
         const id1 = normalizeString(l.id);
         const name = normalizeString(l.name || l.customerName);
         const dKey = getCustomerDedupKey(l);
@@ -261,6 +302,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     const isCustomerDelivered = (c) => {
       if (!c) return true;
       if (c.isDelivered) return true;
+      // Per user instruction: "पैसे देने के बाद यहाँ से हट जाये और तुरंत हिस्ट्री में ऐड हो जाये"
+      const isPaidFull = (c.pendingBalance !== undefined && Number(c.pendingBalance) <= 0) || c.isPaid;
+      if (isPaidFull) return true;
       const id1 = normalizeString(c.id);
       const id2 = normalizeString(c.customerId);
       const id3 = normalizeString(c._id);
@@ -283,6 +327,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       const last = (c.history && c.history[0]) || {};
       const ts = getCustomerTimestamp(c);
       const timeStr = formatArrivalTime(c) || last.date || 'आज';
+      const wt = c.lastMilledWeight || last.weight || last.weightKg || c.totalPisaiKg || 0;
+      const rate = c.ratePerKg || last.rate || 3.5;
+      const totAmt = c.totalAmount || last.total || last.totalAmount || (wt > 0 ? wt * rate : 0) || c.pendingBalance || 0;
 
       map.set(key, {
         id: c.id || c._id,
@@ -291,7 +338,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
         village: c.village || 'ग्राम',
         phone: c.phone || '',
         totalPisaiKg: c.totalPisaiKg || 0,
-        weightKg: c.lastMilledWeight || last.weight || last.weightKg || c.totalPisaiKg || 0,
+        weightKg: wt,
+        ratePerKg: rate,
+        totalAmount: totAmt,
         pendingBalance: c.pendingBalance || 0,
         isPending: (c.pendingBalance || 0) > 0,
         lastMilledItem: c.lastItemMilled || last.itemLabel || last.item || 'गेहूं पिसाई',
@@ -313,6 +362,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
       const existing = map.get(key);
       const ts = getCustomerTimestamp(c);
       const timeStr = formatArrivalTime(c) || c.timeStr || 'आज';
+      const wt = c.weightKg || c.totalPisaiKg || (parseInt(c.weight) || 0);
+      const rate = c.ratePerKg || 3.5;
+      const totAmt = c.totalAmount || (wt > 0 ? wt * rate : 0) || c.pendingBalance || 0;
 
       if (!existing) {
         map.set(key, {
@@ -322,7 +374,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
           village: c.village || 'ग्राम',
           phone: c.phone || '',
           totalPisaiKg: c.totalPisaiKg || c.totalWeightKg || 0,
-          weightKg: c.weightKg || c.totalPisaiKg || (parseInt(c.weight) || 0),
+          weightKg: wt,
+          ratePerKg: rate,
+          totalAmount: totAmt,
           pendingBalance: c.pendingBalance || 0,
           isPending: (c.pendingBalance || 0) > 0 || c.isPending,
           lastMilledItem: c.lastMilledItem || c.category || 'गेहूं पिसाई',
@@ -344,7 +398,9 @@ export const PickupDeliveryScreen = ({ navigation }) => {
           village: (existing.village && existing.village !== 'ग्राम') ? existing.village : (c.village || 'ग्राम'),
           phone: existing.phone || c.phone || '',
           pendingBalance: c.pendingBalance !== undefined ? c.pendingBalance : existing.pendingBalance,
-          weightKg: existing.weightKg || c.weightKg || (parseInt(c.weight) || 0),
+          weightKg: existing.weightKg || wt,
+          ratePerKg: existing.ratePerKg || rate,
+          totalAmount: existing.totalAmount || totAmt,
           lastMilledItem: existing.lastMilledItem || c.lastMilledItem || c.category || 'गेहूं पिसाई',
           timeStr: existing.timeStr || timeStr || 'आज',
           timestamp: bestTs,
@@ -355,12 +411,17 @@ export const PickupDeliveryScreen = ({ navigation }) => {
 
     const result = Array.from(map.values());
 
-    // Sort by arrival sequence: latest / newest entries at the top
+    // Sort by arrival sequence: First-come first-served (जो ग्राहक पहले आया वो सबसे ऊपर क्रमानुसार #1, #2...)
     result.sort((a, b) => {
+      const tokA = a.tokenNumber ? parseInt(a.tokenNumber, 10) : NaN;
+      const tokB = b.tokenNumber ? parseInt(b.tokenNumber, 10) : NaN;
+      if (!isNaN(tokA) && !isNaN(tokB) && tokA !== tokB) {
+        return tokA - tokB;
+      }
       const timeA = a.timestamp || getCustomerTimestamp(a) || 0;
       const timeB = b.timestamp || getCustomerTimestamp(b) || 0;
-      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
-      return (b.orderIndex || 0) - (a.orderIndex || 0);
+      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+      return (a.orderIndex || 0) - (b.orderIndex || 0);
     });
 
     return result;
@@ -446,15 +507,20 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     return trimmed.length > 2 ? trimmed.substring(0, 2) : trimmed;
   };
 
-  // Action when customer name/card is tapped: Open Customer Dashboard with payment option
+  // Action when customer name/card is tapped: If pending, open payment; if already paid, complete delivery
   const handleCustomerPress = (customer) => {
     try {
       Haptics.selectionAsync();
     } catch (e) {}
+    const hasPending = (customer.pendingBalance || 0) > 0;
+    if (!hasPending) {
+      handleDeliverOrder(customer);
+      return;
+    }
     navigation.navigate('CustomerDashboard', {
       customerId: customer.id || customer.customerId || customer._id,
       customer,
-      openPayModal: (customer.pendingBalance || 0) > 0,
+      openPayModal: true,
     });
   };
 
@@ -467,24 +533,41 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     const sId = String(customer.id || customer.customerId || customer._id || customer.name);
     const custName = customer.name || customer.customerName || 'ग्राहक';
 
+    // Calculate accurate amounts for this delivered order
+    const orderWeight = Number(customer.weightKg || customer.totalPisaiKg || 0);
+    const orderPending = Number(customer.pendingBalance || 0);
+    const orderTotal = Number(
+      customer.totalAmount ||
+      (customer.history && customer.history[0]?.total) ||
+      (customer.history && customer.history[0]?.totalAmount) ||
+      (orderWeight > 0 ? (customer.ratePerKg ? orderWeight * customer.ratePerKg : orderWeight * 3.5) : 0) ||
+      orderPending ||
+      0
+    );
+    const orderPaid = orderTotal >= orderPending ? (orderTotal - orderPending) : (customer.amountPaid || orderTotal);
+    const cropDisplay = getCropDisplay(customer);
+    const itemLabel = customer.lastMilledItem || cropDisplay?.label || 'गेहूं पिसाई';
+
     // 1. Mark in backend if connected
     try {
       await EntryApiService.deliverEntry(customer.id || customer.customerId || customer._id, {
-        amountPaid: customer.pendingBalance || 0,
+        amountPaid: orderPending,
         paymentMethod: 'CASH',
         notes: 'माल सुपुर्दगी दर्ज',
       });
     } catch (err) {}
 
-    // 2. Mark in Context & Local Storage
+    // 2. Mark in Context & Local Storage (Pushes immediately to top of Delivery History)
     if (markOrderDelivered) {
       await markOrderDelivered({
         customerId: sId,
         customerName: custName,
         village: customer.village || '',
-        weightKg: customer.weightKg || customer.totalPisaiKg || 0,
-        itemLabel: customer.lastMilledItem || 'गेहूं पिसाई',
-        amountPaid: customer.pendingBalance || 0,
+        phone: customer.phone || '',
+        weightKg: orderWeight,
+        itemLabel: itemLabel,
+        totalAmount: orderTotal > 0 ? orderTotal : (orderPaid + orderPending),
+        amountPaid: orderTotal > 0 ? orderTotal : orderPaid,
         pendingAmount: 0,
       });
     } else {
@@ -493,14 +576,16 @@ export const PickupDeliveryScreen = ({ navigation }) => {
         customerId: sId,
         customerName: custName,
         village: customer.village || '',
-        weightKg: customer.weightKg || customer.totalPisaiKg || 0,
-        itemLabel: customer.lastMilledItem || 'गेहूं पिसाई',
-        totalAmount: customer.pendingBalance || 0,
-        amountPaid: customer.pendingBalance || 0,
+        phone: customer.phone || '',
+        weightKg: orderWeight,
+        itemLabel: itemLabel,
+        totalAmount: orderTotal > 0 ? orderTotal : (orderPaid + orderPending),
+        amountPaid: orderTotal > 0 ? orderTotal : orderPaid,
         pendingAmount: 0,
         isPaid: true,
         status: 'ले जा चुके',
-        deliveryTimeStr: 'आज, ' + new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' }),
+        deliveryTimestamp: Date.now(),
+        deliveryTimeStr: getDeliveryTimeStrNow(),
       });
     }
 

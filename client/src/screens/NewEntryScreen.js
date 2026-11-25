@@ -382,7 +382,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
     const itemLabel = selectedItem === 'OIL'
       ? 'सरसों (तेल)'
       : selectedItem === 'MASALA'
-      ? 'मसाला (कुटाई)'
+      ? 'हल्दी / मसाला पिसाई'
       : selectedItem === 'DARRA'
       ? 'दर्रा / दलिया (पिसाई)'
       : 'गेहूं (पिसाई)';
@@ -760,7 +760,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
               {[
                 { id: 'WHEAT', label: '🌾 गेहूं पिसाई', rate: rates?.wheatPisaiPerKg || 3 },
                 { id: 'OIL', label: '🌻 सरसों तेल', rate: rates?.oilExtractionPerKg || 7 },
-                { id: 'MASALA', label: '🌶️ मसाला कुटाई', rate: rates?.masalaGrindingPerKg || 15 },
+                { id: 'MASALA', label: '🌶️ हल्दी / मसाला', rate: rates?.masalaGrindingPerKg || 15 },
                 { id: 'DARRA', label: '🌽 दर्रा पिसाई', rate: rates?.darraPisaiPerKg || 4 },
               ].map((item) => (
                 <TouchableOpacity

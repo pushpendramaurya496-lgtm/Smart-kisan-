@@ -18,6 +18,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { CustomerApiService } from '../services/customerApiService';
 import { SpeechService } from '../services/speechService';
+import { StorageService } from '../services/storageService';
+import { EntryApiService } from '../services/entryApiService';
 import { useChakki } from '../context/ChakkiContext';
 
 const formatCleanNum = (val) => {
@@ -29,7 +31,7 @@ const formatCleanNum = (val) => {
 export const CustomerDashboardScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
-  const { recordCustomerPayment, refreshStats } = useChakki();
+  const { recordCustomerPayment, markOrderDelivered, refreshStats } = useChakki();
 
   const passedCustomer = route?.params?.customer || {};
   const customerId = route?.params?.customerId || passedCustomer.id || 'c1';
@@ -106,6 +108,53 @@ export const CustomerDashboardScreen = ({ navigation, route }) => {
           paymentMethod: payMethod,
         });
       }
+
+      // 2. Deliver & immediately move to Delivery History (User requirement: "पैसे देने के बाद यहाँ से हट जाये और तुरंत हिस्ट्री में ऐड हो जाये")
+      const sId = String(customer.id || customerId || customer.name);
+      const custName = customer.name || 'किसान ग्राहक';
+      const wt = Number(customer.totalPisaiKg || customer.weightKg || 0);
+      const itemLabel = customer.lastMilledItem || customer.category || 'गेहूं पिसाई';
+      const orderTotal = Number(customer.totalAmount || (wt > 0 ? wt * 3.5 : 0)) || amt;
+
+      try {
+        await EntryApiService.deliverEntry(customer.id || customerId, {
+          amountPaid: amt,
+          paymentMethod: payMethod,
+          notes: 'बकाया भुगतान व सुपुर्दगी',
+        });
+      } catch (err) {}
+
+      if (markOrderDelivered) {
+        await markOrderDelivered({
+          customerId: sId,
+          customerName: custName,
+          village: customer.village || '',
+          phone: customer.phone || '',
+          weightKg: wt,
+          itemLabel: itemLabel,
+          totalAmount: orderTotal,
+          amountPaid: amt,
+          pendingAmount: 0,
+        });
+      } else {
+        await StorageService.markDelivered(sId, {
+          id: sId,
+          customerId: sId,
+          customerName: custName,
+          village: customer.village || '',
+          phone: customer.phone || '',
+          weightKg: wt,
+          itemLabel: itemLabel,
+          totalAmount: orderTotal,
+          amountPaid: amt,
+          pendingAmount: 0,
+          isPaid: true,
+          status: 'ले जा चुके',
+          deliveryTimestamp: Date.now(),
+          deliveryTimeStr: new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' }),
+        });
+      }
+
       if (refreshStats) {
         refreshStats();
       }

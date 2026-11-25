@@ -20,6 +20,7 @@ import { DashboardApiService } from '../services/dashboardApiService';
 import { StorageService } from '../services/storageService';
 import { SpeechService } from '../services/speechService';
 import { useChakki } from '../context/ChakkiContext';
+import { getCustomerTimestamp } from '../utils/customerTimestampHelper';
 
 // Clean number formatting
 const formatCleanNum = (val) => {
@@ -32,11 +33,137 @@ const formatCleanNum = (val) => {
 const getHindiInitials = (name) => {
   if (!name) return 'ग्रा';
   const trimmed = name.trim();
+  // If still raw ID or invalid
+  if (trimmed.startsWith('cust_') || trimmed.startsWith('id_') || /^\d+$/.test(trimmed)) {
+    return 'ग्रा';
+  }
   const parts = trimmed.split(/\s+/);
   if (parts.length >= 2) {
     return parts[0].slice(0, 1) + parts[1].slice(0, 1);
   }
   return trimmed.slice(0, 2);
+};
+
+// Clean and resolve customer info from contextCustomers or safe fallback
+const resolveCustomerInfo = (item, contextCustomers = []) => {
+  let name = (item.customerName || item.name || '').trim();
+  let village = (item.village || '').trim();
+  let phone = (item.phone || '').trim();
+  let itemLabel = (item.itemLabel || '').trim();
+  const weight = Number(item.weightKg) || 0;
+
+  const isRawId = !name || name.startsWith('cust_') || name.startsWith('id_') || name.startsWith('c_') || /^\d+$/.test(name);
+
+  if (isRawId || !village || !itemLabel) {
+    const targetId = String(item.customerId || item.id || (isRawId ? name : ''));
+    const found = contextCustomers.find((c) => {
+      const cId = String(c.id || c._id || c.customerId || '');
+      const cName = String(c.name || c.customerName || '').trim();
+      return (
+        (targetId && (cId === targetId || targetId.includes(cId) || cId.includes(targetId))) ||
+        (name && cName && cName.toLowerCase() === name.toLowerCase())
+      );
+    });
+
+    if (found) {
+      if (isRawId && (found.name || found.customerName)) {
+        name = (found.name || found.customerName).trim();
+      }
+      if (!village && found.village) {
+        village = found.village.trim();
+      }
+      if (!phone && found.phone) {
+        phone = found.phone.trim();
+      }
+      if (!itemLabel) {
+        itemLabel = found.lastMilledItem || found.itemType || '';
+      }
+    }
+  }
+
+  // Fallbacks if still raw ID or empty
+  if (!name || name.startsWith('cust_') || name.startsWith('id_') || /^\d+$/.test(name)) {
+    name = 'किसान ग्राहक';
+  }
+  if (!village || village === 'ग्राम' || village === 'गांव') {
+    village = '';
+  }
+  if (!itemLabel) {
+    itemLabel = weight > 0 ? 'गेहूं (पिसाई)' : 'खाता बकाया भुगतान';
+  }
+
+  return { customerName: name, village, phone, itemLabel };
+};
+
+// Exact delivery timestamp extractor: prioritizes delivery moment so recent deliveries appear at the very top!
+const getDeliveryTimestamp = (item) => {
+  if (!item) return 0;
+
+  // 1. Exact numeric deliveryTimestamp or deliveredAt
+  if (typeof item.deliveryTimestamp === 'number' && item.deliveryTimestamp > 1000000000) {
+    return item.deliveryTimestamp;
+  }
+  if (item.deliveredAt) {
+    const t = new Date(item.deliveredAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+
+  // 2. handoverDate (when goods were handed over / delivered)
+  if (item.handoverDate) {
+    const t = new Date(item.handoverDate).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+
+  // 3. Parse deliveryTimeStr (e.g. "आज, 4:28 pm" or "आज, 3:39 pm")
+  if (typeof item.deliveryTimeStr === 'string') {
+    const str = item.deliveryTimeStr;
+    const m = str.match(/(\d+):(\d+)/);
+    if (m) {
+      let hr = parseInt(m[1], 10);
+      const min = parseInt(m[2], 10);
+      const lower = str.toLowerCase();
+      const hasPm = lower.includes('pm') || lower.includes('p.m') || lower.includes('अपराह्न') || lower.includes('दोपहर') || lower.includes('शाम');
+      const hasAm = lower.includes('am') || lower.includes('a.m') || lower.includes('पूर्वाह्न') || lower.includes('सुबह');
+
+      // Business hours heuristic: 1 to 6 without explicit AM is always PM (1 PM to 6 PM)
+      if (hasPm || (!hasAm && hr >= 1 && hr <= 6)) {
+        if (hr < 12) hr += 12;
+      } else if (hasAm && hr === 12) {
+        hr = 0;
+      }
+
+      const d = new Date();
+      if (str.includes('कल')) {
+        d.setDate(d.getDate() - 1);
+      } else if (str.includes('Nov') || str.includes('Dec')) {
+        d.setDate(d.getDate() - 3);
+      }
+      d.setHours(hr, min, 0, 0);
+      return d.getTime();
+    }
+  }
+
+  // 4. ISO updatedAt or createdAt
+  const dates = [item.updatedAt, item.createdAt, item.date, item.dateIso];
+  for (const d of dates) {
+    if (d) {
+      const t = new Date(d).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+  }
+
+  // 5. Fallback
+  if (typeof item.timestamp === 'number' && item.timestamp > 1000000000) {
+    return item.timestamp;
+  }
+  if (typeof item.orderIndex === 'number' && item.orderIndex > 1000000000) {
+    return item.orderIndex;
+  }
+
+  const ts = getCustomerTimestamp(item);
+  if (ts && ts > 0) return ts;
+
+  return 0;
 };
 
 // Reference sample delivered customers as provided in user specification
@@ -114,7 +241,7 @@ const REFERENCE_SAMPLE_DELIVERIES = [
 export const DeliveryHistoryScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
-  const { customers: contextCustomers } = useChakki();
+  const { customers: contextCustomers, lastDeliveryTimestamp } = useChakki();
 
   // Active time filter tab: 'today' | 'weekly' | 'monthly' | 'all'
   const [activeTab, setActiveTab] = useState('today');
@@ -128,35 +255,66 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
 
   // Load real delivery history from backend API and StorageService
   const loadDeliveryRecords = useCallback(async (tab = activeTab) => {
+    // 1. INSTANT 0ms LOCAL LOAD: Show locally delivered records immediately at top
+    const localDelivered = await StorageService.getDeliveredRecords();
+    if (Array.isArray(localDelivered) && localDelivered.length > 0) {
+      setDbDeliveries(localDelivered);
+    }
+
     try {
       const res = await DashboardApiService.getDeliveryHistory(tab);
       let list = [];
       if (res && Array.isArray(res.deliveries)) {
         list = [...res.deliveries];
       }
-      // Also load local delivered records
-      const localDelivered = await StorageService.getDeliveredRecords();
-      if (Array.isArray(localDelivered) && localDelivered.length > 0) {
-        const seen = new Set(list.map((d) => String(d.id || d.customerId || `${d.customerName}_${d.weightKg}`)));
-        localDelivered.forEach((ld) => {
-          const key = String(ld.id || ld.customerId || `${ld.customerName}_${ld.weightKg}`);
+      const freshLocal = await StorageService.getDeliveredRecords();
+      if (Array.isArray(freshLocal) && freshLocal.length > 0) {
+        const seen = new Set();
+        const combined = [];
+        // Fresh local delivered items at the FRONT (highest priority at top!)
+        freshLocal.forEach((ld) => {
+          const name = (ld.customerName || '').trim().toLowerCase();
+          const wt = Number(ld.weightKg) || 0;
+          const key = `${name}_${wt}`;
+          const id = String(ld.id || ld.customerId || '');
           if (!seen.has(key)) {
-            list.unshift(ld);
             seen.add(key);
+            if (id) seen.add(id);
+            combined.push(ld);
           }
         });
+        list.forEach((dbItem) => {
+          const name = (dbItem.customerName || '').trim().toLowerCase();
+          const wt = Number(dbItem.weightKg) || 0;
+          const key = `${name}_${wt}`;
+          const id = String(dbItem.id || dbItem.customerId || '');
+          if (!seen.has(key) && (!id || !seen.has(id))) {
+            seen.add(key);
+            if (id) seen.add(id);
+            combined.push(dbItem);
+          }
+        });
+        setDbDeliveries(combined);
+      } else {
+        setDbDeliveries(list);
       }
-      setDbDeliveries(list);
     } catch (e) {
       console.warn('Failed to load delivery records:', e);
-      const localDelivered = await StorageService.getDeliveredRecords();
-      setDbDeliveries(localDelivered || []);
+      const fallbackLocal = await StorageService.getDeliveredRecords();
+      setDbDeliveries(fallbackLocal || []);
     }
   }, [activeTab]);
 
   useEffect(() => {
     loadDeliveryRecords(activeTab);
   }, [loadDeliveryRecords, activeTab]);
+
+  // Instant live update whenever any order is delivered across the app
+  useEffect(() => {
+    if (lastDeliveryTimestamp) {
+      loadDeliveryRecords(activeTab);
+    }
+  }, [lastDeliveryTimestamp, loadDeliveryRecords, activeTab]);
 
   // Focus listener to refresh whenever user opens Delivery History screen
   useEffect(() => {
@@ -172,40 +330,34 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
     setRefreshing(false);
   };
 
-  // Combine reference sample items with real database deliveries
+  // Combine real deliveries (or reference sample ONLY if database is empty)
   const allDeliveries = (() => {
-    const combined = [];
-    const seenKeys = new Set();
+    if (dbDeliveries && dbDeliveries.length > 0) {
+      const seen = new Set();
+      const list = [];
+      dbDeliveries.forEach((d) => {
+        const name = (d.customerName || '').trim().toLowerCase();
+        const wt = Number(d.weightKg) || 0;
+        const key = d.id || d._id ? String(d.id || d._id) : `${name}_${wt}_${d.deliveryTimestamp || ''}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          list.push({
+            ...d,
+            periodKey: d.periodKey || 'today',
+          });
+        }
+      });
+      return list;
+    }
 
-    // 1. Add real database deliveries if available
-    dbDeliveries.forEach((d) => {
-      const key = `${d.customerName}_${d.village}_${d.weightKg}_${d.totalAmount}`;
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        combined.push({
-          ...d,
-          periodKey: 'today', // db records fetched for this period
-        });
-      }
-    });
-
-    // 2. Add reference sample deliveries for complete exact matching
-    REFERENCE_SAMPLE_DELIVERIES.forEach((ref) => {
-      const key = `${ref.customerName}_${ref.village}_${ref.weightKg}_${ref.totalAmount}`;
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        combined.push(ref);
-      }
-    });
-
-    return combined;
+    return REFERENCE_SAMPLE_DELIVERIES;
   })();
 
-  // Filter deliveries based on active tab & search query
+  // Filter deliveries based on active tab & search query, then sort by arrival sequence
   const filteredDeliveries = (() => {
     const q = searchQuery.trim().toLowerCase();
 
-    return allDeliveries.filter((item) => {
+    const matched = allDeliveries.filter((item) => {
       // 1. Tab period filtering
       if (activeTab === 'today') {
         const isToday =
@@ -224,14 +376,36 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
 
       // 2. Search query matching (customer name or village)
       if (q) {
-        const nameMatch = (item.customerName || '').toLowerCase().includes(q);
-        const villageMatch = (item.village || '').toLowerCase().includes(q);
-        const itemMatch = (item.itemLabel || '').toLowerCase().includes(q);
+        const resolved = resolveCustomerInfo(item, contextCustomers);
+        const nameMatch = (resolved.customerName || item.customerName || '').toLowerCase().includes(q);
+        const villageMatch = (resolved.village || item.village || '').toLowerCase().includes(q);
+        const itemMatch = (resolved.itemLabel || item.itemLabel || '').toLowerCase().includes(q);
         return nameMatch || villageMatch || itemMatch;
       }
 
       return true;
     });
+
+    // SORT BY RECENT: 'हाल ही में ले गए' (हाल ही में माल ले जाने वाले ग्राहक सबसे पहले #1 पर)
+    const sorted = [...matched];
+    sorted.sort((a, b) => {
+      // 1. Prioritize real delivered goods (weightKg > 0) over 0 KG payment memos
+      const aIsGoods = (Number(a.weightKg) || 0) > 0;
+      const bIsGoods = (Number(b.weightKg) || 0) > 0;
+      if (aIsGoods !== bIsGoods) {
+        return aIsGoods ? -1 : 1;
+      }
+
+      // 2. Exact delivery moment (highest deliveryTimestamp at the very top #1)
+      const timeA = getDeliveryTimestamp(a) || 0;
+      const timeB = getDeliveryTimestamp(b) || 0;
+      if (timeA !== timeB) {
+        return timeB - timeA; // Highest delivery timestamp at the very top!
+      }
+      return 0;
+    });
+
+    return sorted;
   })();
 
   // Handle Tab Switch
@@ -265,7 +439,8 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
   // Share Receipt on WhatsApp
   const handleShareReceipt = async (record) => {
     try {
-      const msg = `🌾 *किसान साथी आटा चक्की*\n━━━━━━━━━━━━━━━━━━━━\n👤 ग्राहक: ${record.customerName} (${record.village})\n📦 माल: ${record.weightKg} KG · ${record.itemLabel}\n💰 कुल राशि: ₹${record.totalAmount}\n💵 भुगतान: ${record.isPaid ? '₹' + record.totalAmount + ' (जमा)' : '₹' + record.pendingAmount + ' (बाकी)'}\n✅ स्थिति: सामान ले जा चुके (${record.deliveryTimeStr})\n━━━━━━━━━━━━━━━━━━━━\nधन्यवाद! 🙏`;
+      const resolved = resolveCustomerInfo(record, contextCustomers);
+      const msg = `🌾 *किसान साथी आटा चक्की*\n━━━━━━━━━━━━━━━━━━━━\n👤 ग्राहक: ${resolved.customerName} (${resolved.village || 'ग्राम'})\n📦 माल: ${record.weightKg} KG · ${resolved.itemLabel}\n💰 कुल राशि: ₹${record.totalAmount}\n💵 भुगतान: ${record.isPaid ? '₹' + record.totalAmount + ' (जमा)' : '₹' + record.pendingAmount + ' (बाकी)'}\n✅ स्थिति: सामान ले जा चुके (${record.deliveryTimeStr})\n━━━━━━━━━━━━━━━━━━━━\nधन्यवाद! 🙏`;
       await Share.share({ message: msg });
     } catch (e) {}
   };
@@ -277,9 +452,10 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
     }
   };
 
-  // Render individual customer delivery item
+  // Render individual customer delivery item with clean names (NO #)
   const renderDeliveryItem = ({ item, index }) => {
-    const initials = getHindiInitials(item.customerName);
+    const resolved = resolveCustomerInfo(item, contextCustomers);
+    const initials = getHindiInitials(resolved.customerName);
     const isPaid = item.isPaid || (item.pendingAmount || 0) === 0;
 
     return (
@@ -287,20 +463,20 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
         <TouchableOpacity
           style={styles.customerRow}
           activeOpacity={0.75}
-          onPress={() => setSelectedRecord(item)}
+          onPress={() => setSelectedRecord({ ...item, ...resolved })}
         >
-          {/* Left: Green Circle Avatar with Hindi Initials */}
+          {/* Left: Green Circle Avatar with Hindi Initials (NO #) */}
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
 
-          {/* Middle Section: Name, Village and Milling Details */}
+          {/* Middle Section: Name, Village and Milling Details (NO #) */}
           <View style={styles.customerMiddleCol}>
             <Text style={styles.customerTitle} numberOfLines={1}>
-              {item.customerName} · {item.village}
+              {resolved.customerName}{resolved.village ? ` · ${resolved.village}` : ''}
             </Text>
             <Text style={styles.customerSubDetails} numberOfLines={1}>
-              {item.itemLabel} · {formatCleanNum(item.weightKg)} KG · {item.deliveryTimeStr || 'आज'}
+              {resolved.itemLabel} · {formatCleanNum(item.weightKg)} KG · {item.deliveryTimeStr || 'आज'}
             </Text>
           </View>
 
@@ -464,11 +640,15 @@ export const DeliveryHistoryScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* 5. DELIVERY RECORD HEADING */}
+        {/* 5. DELIVERY RECORD HEADING & RECENT BADGE (ONLY 1 OPTION) */}
         <View style={styles.recordHeadingRow}>
-          {/* Small Vertical Green Line */}
-          <View style={styles.headingGreenBar} />
-          <Text style={styles.recordHeadingText}>डिलीवरी रिकॉर्ड</Text>
+          <View style={styles.recordHeadingLeft}>
+            <View style={styles.headingGreenBar} />
+            <Text style={styles.recordHeadingText}>डिलीवरी रिकॉर्ड</Text>
+          </View>
+          <View style={styles.sortTogglePill}>
+            <Text style={styles.sortToggleText}>⚡ हाल ही में ले गए</Text>
+          </View>
         </View>
 
         {/* 6. CUSTOMER DELIVERY LIST CARD */}
@@ -939,6 +1119,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recordHeadingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headingGreenBar: {
     width: 4.5,
@@ -951,6 +1136,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     color: '#0F172A',
+  },
+  sortTogglePill: {
+    backgroundColor: '#E2EFE7',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  sortToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
   },
 
   /* 6. Customer Delivery List Card */
@@ -973,6 +1171,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
   },
+  avatarWrapper: {
+    position: 'relative',
+  },
   avatarCircle: {
     width: 48,
     height: 48,
@@ -980,6 +1181,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#269B70', // Solid green circle avatar per design
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  seqBadgeMini: {
+    position: 'absolute',
+    bottom: -2,
+    right: -4,
+    backgroundColor: '#065F46',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  seqBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   avatarText: {
     fontSize: 18,

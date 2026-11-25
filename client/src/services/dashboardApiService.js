@@ -10,8 +10,8 @@ const getAuthHeaders = async () => {
   return headers;
 };
 
-// Resilient fast fetch wrapper with 2-second timeout to prevent UI lag
-const fetchWithTimeout = async (url, options = {}, timeoutMs = 2000) => {
+// Resilient fast fetch wrapper with 8-second timeout for reliable Wi-Fi network requests
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {

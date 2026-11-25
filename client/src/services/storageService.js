@@ -92,19 +92,29 @@ export const StorageService = {
       if (!idOrKey) return;
       const ids = await this.getDeliveredIds();
       const sKey = String(idOrKey);
-      if (!ids.includes(sKey)) {
-        ids.push(sKey);
-        await AsyncStorage.setItem(KEYS.DELIVERED_IDS, JSON.stringify(ids));
-      }
+      const nameKey = record?.customerName ? String(record.customerName).trim().toLowerCase() : '';
+      if (!ids.includes(sKey)) ids.push(sKey);
+      if (nameKey && !ids.includes(nameKey)) ids.push(nameKey);
+      await AsyncStorage.setItem(KEYS.DELIVERED_IDS, JSON.stringify(ids));
+
       if (record) {
         const records = await this.getDeliveredRecords();
-        const existingIdx = records.findIndex((r) => String(r.id || r.customerId) === sKey);
-        if (existingIdx >= 0) {
-          records[existingIdx] = { ...records[existingIdx], ...record };
-        } else {
-          records.unshift(record);
-        }
-        await AsyncStorage.setItem(KEYS.DELIVERED_RECORDS, JSON.stringify(records));
+        const nowMs = Date.now();
+        const fullRecord = {
+          ...record,
+          deliveryTimestamp: record.deliveryTimestamp || nowMs,
+          deliveredAt: record.deliveredAt || new Date(nowMs).toISOString(),
+          handoverDate: record.handoverDate || new Date(nowMs).toISOString(),
+        };
+        // Remove existing record if already present so it doesn't get updated in-place at the bottom
+        const filtered = records.filter(
+          (r) =>
+            String(r.id || r.customerId) !== sKey &&
+            (!record.customerName || String(r.customerName || '').trim().toLowerCase() !== String(record.customerName || '').trim().toLowerCase())
+        );
+        // Unshift to the VERY TOP of the list (#1 position)
+        filtered.unshift(fullRecord);
+        await AsyncStorage.setItem(KEYS.DELIVERED_RECORDS, JSON.stringify(filtered));
       }
     } catch (err) {
       console.warn('Storage markDelivered error:', err);
