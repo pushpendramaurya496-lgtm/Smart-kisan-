@@ -142,6 +142,19 @@ class SmsService {
 
     return SmsService.sendSMS({ phone, message });
   }
+
+  /**
+   * 4. साइनअप, लॉगिन व पासवर्ड/पिन रीसेट के लिए OTP SMS
+   */
+  static async sendOTPSMS({
+    phone,
+    otp,
+    purpose = 'Login / Verification',
+  }) {
+    const message = `Namaste! Kisan Sathi Chakki Smart AI mein aapka ${purpose} OTP: ${otp} hai. Yeh 5 minute ke liye maanya hai. Kisi se share na karein.`;
+
+    return SmsService.sendSMS({ phone, message });
+  }
 }
 
 module.exports = SmsService;

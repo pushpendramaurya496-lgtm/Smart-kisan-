@@ -7,9 +7,9 @@ class AuthService {
    * 1. Send OTP to Mobile Number
    */
   static async sendOTP(phone) {
-    // In dev / test mode, predictable OTP '1234' makes testing instant; otherwise random 4 digits
-    const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
-    const rawOtp = isDev ? '1234' : Math.floor(1000 + Math.random() * 9000).toString();
+    // Generate real secure 4-digit random OTP (or 1234 for test phone 9876543210)
+    const isTestPhone = phone === '9876543210';
+    const rawOtp = isTestPhone ? '1234' : Math.floor(1000 + Math.random() * 9000).toString();
     const salt = await bcrypt.genSalt(10);
     const hashedOtp = await bcrypt.hash(rawOtp, salt);
 
@@ -36,13 +36,28 @@ class AuthService {
 
     await user.save();
 
-    console.log(`\n📲 [OTP SENT] Phone: ${phone} | OTP: ${rawOtp} (Valid for 5 mins)\n`);
+    console.log(`\n📲 [OTP GENERATED] Phone: ${phone} | OTP: ${rawOtp} (Valid for 5 mins)\n`);
+
+    // Send real OTP SMS via Fast2SMS
+    try {
+      const SmsService = require('../../services/sms.service');
+      const purpose = isNewUser ? 'New Signup' : 'Login / PIN Reset';
+      SmsService.sendOTPSMS({
+        phone,
+        otp: rawOtp,
+        purpose,
+      }).catch((smsErr) => {
+        console.warn('[AuthService] Fast2SMS sendOTPSMS warning:', smsErr.message);
+      });
+    } catch (err) {
+      console.warn('[AuthService] SmsService load error:', err.message);
+    }
 
     return {
       phone: user.phone,
       isNewUser,
       isProfileCompleted: user.isProfileCompleted,
-      devOtp: isDev ? rawOtp : undefined,
+      devOtp: isTestPhone ? rawOtp : undefined,
     };
   }
 
