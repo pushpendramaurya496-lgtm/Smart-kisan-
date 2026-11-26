@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Dimensions,
   Animated,
+  Easing,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
@@ -14,7 +15,7 @@ import LottieView from 'lottie-react-native';
 const chakkiLottieAnim = require('../../assets/animations/aata_chakki_scanned_hd_1080p.json');
 const deliveryVideoAnim = require('../../assets/animations/chakki_delivery_video_hd.json');
 
-const SCROLL_INTERVAL = 20000; // Auto-scroll every 20 seconds
+const SCROLL_INTERVAL = 5000; // Auto-scroll every 5 seconds per user specification
 
 const windowWidth = Dimensions.get('window').width;
 const defaultBannerWidth = Math.round(Math.max(280, windowWidth - 32));
@@ -30,14 +31,29 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // Auto-scroll every 20 seconds
+  // Manual navigation to specific slide with smooth easing
+  const goToSlide = (slideIndex) => {
+    try {
+      Haptics.selectionAsync();
+    } catch (e) {}
+    setActiveSlide(slideIndex);
+    Animated.timing(slideAnim, {
+      toValue: slideIndex,
+      duration: 550,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Auto-scroll every 5 seconds (5000ms)
   useEffect(() => {
     const scrollTimer = setInterval(() => {
       setActiveSlide((prev) => {
         const next = (prev + 1) % 2;
         Animated.timing(slideAnim, {
           toValue: next,
-          duration: 500,
+          duration: 550,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start();
         return next;
@@ -209,10 +225,20 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
         </TouchableOpacity>
       </Animated.View>
 
-      {/* Slide Pagination Dots */}
+      {/* Slide Pagination Dots (Interactive + Auto 5s Sync) */}
       <View style={styles.dotsRow}>
-        <View style={[styles.dot, activeSlide === 0 ? styles.activeDotGreen : styles.inactiveDot]} />
-        <View style={[styles.dot, activeSlide === 1 ? styles.activeDotBlue : styles.inactiveDot]} />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => goToSlide(0)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.dot, activeSlide === 0 ? styles.activeDotGreen : styles.inactiveDot]}
+        />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => goToSlide(1)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.dot, activeSlide === 1 ? styles.activeDotBlue : styles.inactiveDot]}
+        />
       </View>
     </View>
   );

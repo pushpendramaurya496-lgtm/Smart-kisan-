@@ -47,14 +47,15 @@ export const ChakkiProvider = ({ children }) => {
       const liveStats = await DashboardApiService.getStats();
       if (liveStats) {
         setStats((prev) => ({
+          ...prev,
           ...liveStats,
-          todayPisaiKg: Math.max(Number(liveStats.todayPisaiKg) || 0, Number(prev?.todayPisaiKg) || 0),
-          todayEarnings: Math.max(Number(liveStats.todayEarnings) || 0, Number(prev?.todayEarnings) || 0),
-          cashReceived: Math.max(Number(liveStats.cashReceived) || 0, Number(prev?.cashReceived) || 0),
-          pendingDebt: Math.max(Number(liveStats.pendingDebt) || 0, Number(prev?.pendingDebt) || 0),
-          totalCustomers: Math.max(Number(liveStats.totalCustomers) || 0, Number(prev?.totalCustomers) || 0),
-          todayAdded: Math.max(Number(liveStats.todayAdded) || 0, Number(prev?.todayAdded) || 0),
-          todayEntries: Math.max(Number(liveStats.todayEntries) || 0, Number(prev?.todayEntries) || 0),
+          todayPisaiKg: Number(liveStats.todayPisaiKg) !== undefined ? Number(liveStats.todayPisaiKg) : (prev?.todayPisaiKg || 0),
+          todayEarnings: Number(liveStats.todayEarnings) !== undefined ? Number(liveStats.todayEarnings) : (prev?.todayEarnings || 0),
+          cashReceived: Number(liveStats.cashReceived) !== undefined ? Number(liveStats.cashReceived) : (prev?.cashReceived || 0),
+          pendingDebt: Number(liveStats.pendingDebt) !== undefined ? Number(liveStats.pendingDebt) : (prev?.pendingDebt || 0),
+          totalCustomers: Number(liveStats.totalCustomers) !== undefined ? Number(liveStats.totalCustomers) : (prev?.totalCustomers || 0),
+          todayAdded: Number(liveStats.todayAdded) !== undefined ? Number(liveStats.todayAdded) : (prev?.todayAdded || 0),
+          todayEntries: Number(liveStats.todayEntries) !== undefined ? Number(liveStats.todayEntries) : (prev?.todayEntries || 0),
         }));
       }
     } catch (e) {}
@@ -451,6 +452,7 @@ export const ChakkiProvider = ({ children }) => {
       handoverDate: new Date(nowMs).toISOString(),
     });
 
+    let settledDebt = 0;
     setCustomers((prevCustomers) => {
       const updated = prevCustomers.map((cust) => {
         const matchById = customerId && (String(cust.id) === sId || String(cust._id) === sId || String(cust.customerId) === sId);
@@ -458,6 +460,7 @@ export const ChakkiProvider = ({ children }) => {
         if (matchById || matchByName) {
           const currentBal = Number(cust.pendingBalance) || 0;
           const newBal = pend > 0 ? pend : Math.max(0, Math.round((currentBal - paid) * 100) / 100);
+          settledDebt = Math.max(0, Math.round((currentBal - newBal) * 100) / 100);
           return {
             ...cust,
             pendingBalance: newBal,
@@ -471,12 +474,12 @@ export const ChakkiProvider = ({ children }) => {
       return updated;
     });
 
-    if (paid > 0) {
+    if (settledDebt > 0) {
       setStats((prev) => ({
         ...prev,
-        todayEarnings: Math.round(((prev?.todayEarnings || 0) + paid) * 100) / 100,
-        cashReceived: Math.round(((prev?.cashReceived || 0) + paid) * 100) / 100,
-        pendingDebt: Math.max(0, Math.round(((prev?.pendingDebt || 0) - paid) * 100) / 100),
+        todayEarnings: Math.round(((prev?.todayEarnings || 0) + settledDebt) * 100) / 100,
+        cashReceived: Math.round(((prev?.cashReceived || 0) + settledDebt) * 100) / 100,
+        pendingDebt: Math.max(0, Math.round(((prev?.pendingDebt || 0) - settledDebt) * 100) / 100),
       }));
     }
 

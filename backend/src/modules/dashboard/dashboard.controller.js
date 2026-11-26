@@ -115,35 +115,51 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       .reduce((sum, e) => sum + (Number(e.amountPaid) || 0), 0);
   }
 
-  // Also include debt settlement payments received today from customers
+  // Map of customerId -> total entry amount paid today to prevent double counting
+  const customerEntryPaidToday = {};
+  for (const e of entriesToday) {
+    const cId = e.customerId ? String(e.customerId) : (e.customerName || '').trim().toLowerCase();
+    if (cId) {
+      customerEntryPaidToday[cId] = (customerEntryPaidToday[cId] || 0) + (Number(e.amountPaid) || 0);
+    }
+  }
+
+  // Also include debt settlement payments received today from customers for PRIOR entries or old debt
   let todayDebtCash = 0;
   let todayDebtOnline = 0;
   if (isDbConnected()) {
     try {
-      const debtPaymentAgg = await Customer.aggregate([
-        { $unwind: '$ledgerHistory' },
-        {
-          $match: {
-            'ledgerHistory.type': 'PAYMENT',
-            'ledgerHistory.date': { $gte: startOfDay },
-          },
-        },
-        {
-          $group: {
-            _id: '$ledgerHistory.paymentMethod',
-            total: { $sum: '$ledgerHistory.paidAmount' },
-          },
-        },
-      ]);
-
-      debtPaymentAgg.forEach((item) => {
-        const amt = Number(item.total) || 0;
-        if (item._id === 'UPI') {
-          todayDebtOnline += amt;
-        } else {
-          todayDebtCash += amt;
-        }
+      const customersWithPayments = await Customer.find({
+        ...matchQuery,
+        'ledgerHistory.type': 'PAYMENT',
+        'ledgerHistory.date': { $gte: startOfDay },
       });
+
+      for (const cust of customersWithPayments) {
+        const cId = String(cust._id);
+        const cName = (cust.name || '').trim().toLowerCase();
+        const entryPaid = (customerEntryPaidToday[cId] || 0) || (customerEntryPaidToday[cName] || 0);
+
+        let custLedgerCash = 0;
+        let custLedgerOnline = 0;
+        for (const l of cust.ledgerHistory || []) {
+          if (l.type === 'PAYMENT' && l.date && new Date(l.date) >= startOfDay) {
+            const amt = Number(l.paidAmount) || 0;
+            if (l.paymentMethod === 'UPI') {
+              custLedgerOnline += amt;
+            } else {
+              custLedgerCash += amt;
+            }
+          }
+        }
+        const totalCustLedger = custLedgerCash + custLedgerOnline;
+        const excess = Math.max(0, totalCustLedger - entryPaid);
+        if (excess > 0) {
+          const cashRatio = totalCustLedger > 0 ? (custLedgerCash / totalCustLedger) : 1;
+          todayDebtCash += Math.round(excess * cashRatio * 100) / 100;
+          todayDebtOnline += Math.round(excess * (1 - cashRatio) * 100) / 100;
+        }
+      }
     } catch (e) {
       console.warn('Debt payment aggregation warning:', e.message);
     }
@@ -263,32 +279,59 @@ const getEarningsBreakdown = asyncHandler(async (req, res) => {
     }
   }
 
-  // Also include debt settlement payments received in this period
+  // Map of customerId -> total entry amount paid in this period to prevent double counting
+  const customerEntryPaidInPeriod = {};
+  for (const e of entries) {
+    const cId = e.customerId ? String(e.customerId) : (e.customerName || '').trim().toLowerCase();
+    if (cId) {
+      customerEntryPaidInPeriod[cId] = (customerEntryPaidInPeriod[cId] || 0) + (Number(e.amountPaid) || 0);
+    }
+  }
+
+  // Also include debt settlement payments received in this period for PRIOR entries or old debt
   if (isDbConnected()) {
     try {
-      const ledgerMatch = { 'ledgerHistory.type': 'PAYMENT' };
-      if (matchQuery.createdAt) {
-        ledgerMatch['ledgerHistory.date'] = matchQuery.createdAt;
-      }
-      const debtAgg = await Customer.aggregate([
-        { $unwind: '$ledgerHistory' },
-        { $match: ledgerMatch },
-        {
-          $group: {
-            _id: '$ledgerHistory.paymentMethod',
-            total: { $sum: '$ledgerHistory.paidAmount' },
-          },
-        },
-      ]);
-      debtAgg.forEach((item) => {
-        const amt = Number(item.total) || 0;
-        if (item._id === 'UPI') {
-          onlineReceived += amt;
-        } else {
-          cashReceived += amt;
-        }
-        totalEarnings += amt;
+      const ledgerDateQuery = matchQuery.createdAt || {};
+      const customersWithPayments = await Customer.find({
+        ...(ownerId ? { ownerId } : {}),
+        'ledgerHistory.type': 'PAYMENT',
+        ...(matchQuery.createdAt ? { 'ledgerHistory.date': matchQuery.createdAt } : {}),
       });
+
+      for (const cust of customersWithPayments) {
+        const cId = String(cust._id);
+        const cName = (cust.name || '').trim().toLowerCase();
+        const entryPaid = (customerEntryPaidInPeriod[cId] || 0) || (customerEntryPaidInPeriod[cName] || 0);
+
+        let custLedgerCash = 0;
+        let custLedgerOnline = 0;
+        for (const l of cust.ledgerHistory || []) {
+          if (l.type === 'PAYMENT' && l.date) {
+            const lDate = new Date(l.date);
+            let inPeriod = true;
+            if (ledgerDateQuery.$gte && lDate < new Date(ledgerDateQuery.$gte)) inPeriod = false;
+            if (ledgerDateQuery.$lte && lDate > new Date(ledgerDateQuery.$lte)) inPeriod = false;
+            if (inPeriod) {
+              const amt = Number(l.paidAmount) || 0;
+              if (l.paymentMethod === 'UPI') {
+                custLedgerOnline += amt;
+              } else {
+                custLedgerCash += amt;
+              }
+            }
+          }
+        }
+        const totalCustLedger = custLedgerCash + custLedgerOnline;
+        const excess = Math.max(0, totalCustLedger - entryPaid);
+        if (excess > 0) {
+          const cashRatio = totalCustLedger > 0 ? (custLedgerCash / totalCustLedger) : 1;
+          const addCash = Math.round(excess * cashRatio * 100) / 100;
+          const addOnline = Math.round(excess * (1 - cashRatio) * 100) / 100;
+          cashReceived += addCash;
+          onlineReceived += addOnline;
+          totalEarnings += excess;
+        }
+      }
     } catch (err) {
       console.warn('Earnings debt aggregation warning:', err.message);
     }
