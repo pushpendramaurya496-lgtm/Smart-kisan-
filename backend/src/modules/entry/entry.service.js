@@ -183,6 +183,25 @@ class EntryService {
 
     await customer.save();
 
+    // Send SMS receipt to customer asynchronously if mobile number exists
+    if (customer.phone) {
+      try {
+        const SmsService = require('../../services/sms.service');
+        SmsService.sendMillingSlipSMS({
+          phone: customer.phone,
+          customerName: customer.name,
+          tokenNumber,
+          weightKg,
+          itemLabel,
+          totalAmount,
+          amountPaid,
+          pendingAmount,
+        }).catch((err) => console.warn('[EntryService] SMS send background error:', err.message));
+      } catch (smsErr) {
+        console.warn('[EntryService] SMS service error:', smsErr.message);
+      }
+    }
+
     return {
       entry,
       customer: {
@@ -376,6 +395,19 @@ class EntryService {
       notes: data.notes || '',
     });
     await customer.save();
+
+    // Send delivery / pickup completion SMS to customer if mobile number exists
+    if (customer.phone) {
+      try {
+        const SmsService = require('../../services/sms.service');
+        SmsService.sendDeliverySMS({
+          phone: customer.phone,
+          customerName: customer.name,
+          itemLabel: entry.itemLabel,
+          weightKg: entry.weightKg,
+        }).catch((err) => console.warn('[EntryService] Delivery SMS send background error:', err.message));
+      } catch (smsErr) {}
+    }
 
     // Hindi WhatsApp Receipt Text
     const dateFormatted = new Date().toLocaleDateString('hi-IN', {

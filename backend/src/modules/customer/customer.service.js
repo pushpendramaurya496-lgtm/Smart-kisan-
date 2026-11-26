@@ -284,6 +284,19 @@ class CustomerService {
       console.warn('Failed to apply debt payment to entries:', entryErr.message);
     }
 
+    // Send debt payment receipt SMS to customer if mobile number exists
+    if (customer.phone) {
+      try {
+        const SmsService = require('../../services/sms.service');
+        SmsService.sendDebtPaymentSMS({
+          phone: customer.phone,
+          customerName: customer.name,
+          amountPaid,
+          pendingBalance: customer.pendingBalance,
+        }).catch((err) => console.warn('[CustomerService] Debt payment SMS send background error:', err.message));
+      } catch (smsErr) {}
+    }
+
     const receiptText = `🌾 *किसान साथी | चक्की स्मार्ट AI*\n━━━━━━━━━━━━━━━━━━━━\n👤 *ग्राहक:* ${customer.name} (${customer.village})\n💵 *जमा राशि:* ₹${amountPaid} (${paymentMethod})\n${
       customer.pendingBalance > 0
         ? `🔴 *शेष बकाया:* ₹${customer.pendingBalance}`
