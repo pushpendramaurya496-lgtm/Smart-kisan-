@@ -1,8 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useChakki } from '../context/ChakkiContext';
 import { WheatLogo } from './illustrations/AppIllustrations';
 
 export const ChakkiHeaderCard = ({ onPremiumPress }) => {
+  const { t } = useChakki();
+
   return (
     <View style={styles.card}>
       {/* Left: Circular Wheat Logo + Titles */}
@@ -12,7 +15,7 @@ export const ChakkiHeaderCard = ({ onPremiumPress }) => {
         </View>
         <View style={styles.titleColumn}>
           <Text style={styles.title}>Chakki Smart AI</Text>
-          <Text style={styles.subtitle}>Smart Mill Management</Text>
+          <Text style={styles.subtitle}>{t('smartMill')}</Text>
         </View>
       </View>
 
@@ -26,7 +29,7 @@ export const ChakkiHeaderCard = ({ onPremiumPress }) => {
         style={styles.premiumBadge}
       >
         <Text style={styles.crownEmoji}>👑</Text>
-        <Text style={styles.premiumText}>Premium</Text>
+        <Text style={styles.premiumText}>{t('premium')}</Text>
       </TouchableOpacity>
     </View>
   );

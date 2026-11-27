@@ -7,10 +7,13 @@ const {
   updateProfile,
   loginWithPIN,
   resetPIN,
+  verifyCurrentPIN,
+  changePIN,
   getMe,
   getSettings,
   updateSettings,
   logoutUser,
+  submitAppRating,
 } = require('./auth.controller');
 const { protect } = require('./auth.middleware');
 
@@ -241,6 +244,66 @@ router.post('/reset-pin', resetPIN);
 
 /**
  * @swagger
+ * /auth/verify-pin:
+ *   post:
+ *     summary: 5.1 वर्तमान (पुराना) MPIN सत्यापित करें
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mpin
+ *             properties:
+ *               mpin:
+ *                 type: string
+ *                 example: "1234"
+ *     responses:
+ *       200:
+ *         description: पुराना PIN सत्यापित हुआ
+ *       400:
+ *         description: गलत पुराना PIN
+ */
+router.post('/verify-pin', protect, verifyCurrentPIN);
+
+/**
+ * @swagger
+ * /auth/change-pin:
+ *   post:
+ *     summary: 5.2 पुराना PIN सत्यापित करके नया MPIN सेट करें
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - oldMpin
+ *               - newMpin
+ *             properties:
+ *               oldMpin:
+ *                 type: string
+ *                 example: "1234"
+ *               newMpin:
+ *                 type: string
+ *                 example: "5678"
+ *     responses:
+ *       200:
+ *         description: नया PIN सफलतापूर्वक सेट हुआ
+ *       400:
+ *         description: गलत पुराना PIN या अमान्य नया PIN
+ */
+router.post('/change-pin', protect, changePIN);
+
+/**
+ * @swagger
  * /auth/me:
  *   get:
  *     summary: 4. वर्तमान लॉग-इन चक्की मालिक का विवरण प्राप्त करें
@@ -313,5 +376,6 @@ router.get('/me', protect, getMe);
 router.get('/settings', protect, getSettings);
 router.put('/settings', protect, updateSettings);
 router.post('/logout', protect, logoutUser);
+router.post('/rate-app', submitAppRating);
 
 module.exports = router;

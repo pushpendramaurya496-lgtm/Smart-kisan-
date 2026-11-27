@@ -47,6 +47,12 @@ const completeProfileSchema = Joi.object({
     wheatPisaiPerKg: Joi.number().min(0).optional(),
     oilExtractionPerKg: Joi.number().min(0).optional(),
     masalaGrindingPerKg: Joi.number().min(0).optional(),
+    darraPisaiPerKg: Joi.number().min(0).optional(),
+    matarBesanPerKg: Joi.number().min(0).optional(),
+    chanaBesanPerKg: Joi.number().min(0).optional(),
+    dhaniyaPerKg: Joi.number().min(0).optional(),
+    makkaAataPerKg: Joi.number().min(0).optional(),
+    chawalPerKg: Joi.number().min(0).optional(),
   }).optional(),
 });
 
@@ -104,7 +110,46 @@ const updateProfileSchema = Joi.object({
     wheatPisaiPerKg: Joi.number().min(0).optional(),
     oilExtractionPerKg: Joi.number().min(0).optional(),
     masalaGrindingPerKg: Joi.number().min(0).optional(),
+    darraPisaiPerKg: Joi.number().min(0).optional(),
+    matarBesanPerKg: Joi.number().min(0).optional(),
+    chanaBesanPerKg: Joi.number().min(0).optional(),
+    dhaniyaPerKg: Joi.number().min(0).optional(),
+    makkaAataPerKg: Joi.number().min(0).optional(),
+    chawalPerKg: Joi.number().min(0).optional(),
   }).optional(),
+});
+
+const verifyPinSchema = Joi.object({
+  mpin: Joi.string()
+    .length(4)
+    .pattern(/^\d{4}$/)
+    .required()
+    .messages({
+      'string.length': 'पुराना PIN ठीक 4 अंकों का होना चाहिए',
+      'string.pattern.base': 'PIN में केवल 4 अंक होने चाहिए',
+      'any.required': 'पुराना PIN दर्ज करना आवश्यक है',
+    }),
+});
+
+const changePinSchema = Joi.object({
+  oldMpin: Joi.string()
+    .length(4)
+    .pattern(/^\d{4}$/)
+    .required()
+    .messages({
+      'string.length': 'पुराना PIN ठीक 4 अंकों का होना चाहिए',
+      'string.pattern.base': 'पुराने PIN में केवल अंक होने चाहिए',
+      'any.required': 'पुराना PIN दर्ज करना आवश्यक है',
+    }),
+  newMpin: Joi.string()
+    .length(4)
+    .pattern(/^\d{4}$/)
+    .required()
+    .messages({
+      'string.length': 'नया PIN ठीक 4 अंकों का होना चाहिए',
+      'string.pattern.base': 'नए PIN में केवल अंक होने चाहिए',
+      'any.required': 'नया PIN दर्ज करना आवश्यक है',
+    }),
 });
 
 module.exports = {
@@ -114,4 +159,6 @@ module.exports = {
   updateProfileSchema,
   loginPinSchema,
   resetPinSchema,
+  verifyPinSchema,
+  changePinSchema,
 };

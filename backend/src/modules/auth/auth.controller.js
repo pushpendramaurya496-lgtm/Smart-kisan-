@@ -8,6 +8,8 @@ const {
   updateProfileSchema,
   loginPinSchema,
   resetPinSchema,
+  verifyPinSchema,
+  changePinSchema,
 } = require('./auth.validation');
 
 /**
@@ -81,6 +83,34 @@ const resetPIN = asyncHandler(async (req, res) => {
 });
 
 /**
+ * 5.1 Verify Current MPIN
+ * POST /api/v1/auth/verify-pin
+ */
+const verifyCurrentPIN = asyncHandler(async (req, res) => {
+  const { error, value } = verifyPinSchema.validate(req.body);
+  if (error) {
+    return ApiResponse.error(res, 400, error.details[0].message);
+  }
+
+  const result = await AuthService.verifyCurrentPIN(req.user._id, value.mpin);
+  return ApiResponse.success(res, 200, result, result.message);
+});
+
+/**
+ * 5.2 Change MPIN with Old PIN Verification
+ * POST /api/v1/auth/change-pin
+ */
+const changePIN = asyncHandler(async (req, res) => {
+  const { error, value } = changePinSchema.validate(req.body);
+  if (error) {
+    return ApiResponse.error(res, 400, error.details[0].message);
+  }
+
+  const result = await AuthService.changePIN(req.user._id, value.oldMpin, value.newMpin);
+  return ApiResponse.success(res, 200, result, result.message);
+});
+
+/**
  * 6. Update Owner Profile & Photo
  * PUT /api/v1/auth/profile
  */
@@ -129,6 +159,23 @@ const logoutUser = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, 200, { loggedOut: true }, 'सफलतापूर्वक लॉगआउट हुआ');
 });
 
+/**
+ * 11. Submit App Rating & Feedback
+ * POST /api/v1/auth/rate-app
+ */
+const submitAppRating = asyncHandler(async (req, res) => {
+  const userId = req.user?._id || req.body.userId;
+  const phone = req.user?.phone || req.body.phone;
+  const ownerName = req.user?.profile?.ownerName || req.body.ownerName;
+  const result = await AuthService.submitRating({
+    ...req.body,
+    userId,
+    phone,
+    ownerName,
+  });
+  return ApiResponse.success(res, 201, result, result.message);
+});
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -136,8 +183,11 @@ module.exports = {
   updateProfile,
   loginWithPIN,
   resetPIN,
+  verifyCurrentPIN,
+  changePIN,
   getMe,
   getSettings,
   updateSettings,
   logoutUser,
+  submitAppRating,
 };

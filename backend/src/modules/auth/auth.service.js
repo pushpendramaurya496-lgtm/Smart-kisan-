@@ -187,12 +187,7 @@ class AuthService {
     } else {
       const isMatch = await bcrypt.compare(mpin, user.mpin);
       if (!isMatch) {
-        // Also allow universal fallback demo PIN 1234
-        if (mpin === '1234') {
-          // Allow 1234 demo PIN
-        } else {
-          throw new Error('गलत सुरक्षा PIN दर्ज किया गया है। कृपया पुनः प्रयास करें');
-        }
+        throw new Error('गलत सुरक्षा PIN दर्ज किया गया है। कृपया सही PIN दर्ज करें');
       }
     }
 
@@ -264,6 +259,54 @@ class AuthService {
       token,
       message: 'नया सुरक्षा PIN सफलतापूर्वक सेट कर दिया गया है',
     };
+  }
+
+  /**
+   * 5.1 Verify Current MPIN for Authenticated User
+   */
+  static async verifyCurrentPIN(userId, mpin) {
+    const user = await User.findById(userId).select('+mpin');
+    if (!user) {
+      throw new Error('उपयोगकर्ता खाता नहीं मिला');
+    }
+
+    if (!user.mpin) {
+      return { verified: true, isFirstTime: true, message: 'कोई पुराना PIN नहीं मिला। नया PIN सेट करें।' };
+    }
+
+    const isMatch = await bcrypt.compare(mpin, user.mpin);
+    if (!isMatch) {
+      throw new Error('गलत पुराना PIN! कृपया सही पुराना PIN दर्ज करें');
+    }
+
+    return { verified: true, message: 'पुराना PIN सफलतापूर्वक सत्यापित हुआ' };
+  }
+
+  /**
+   * 5.2 Change MPIN with Old PIN Verification
+   */
+  static async changePIN(userId, oldMpin, newMpin) {
+    const user = await User.findById(userId).select('+mpin');
+    if (!user) {
+      throw new Error('उपयोगकर्ता खाता नहीं मिला');
+    }
+
+    if (user.mpin) {
+      const isMatch = await bcrypt.compare(oldMpin, user.mpin);
+      if (!isMatch) {
+        throw new Error('गलत पुराना PIN! कृपया सही पुराना PIN दर्ज करें');
+      }
+    }
+
+    if (oldMpin === newMpin) {
+      throw new Error('नया PIN पुराने PIN से अलग होना चाहिए');
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.mpin = await bcrypt.hash(newMpin, salt);
+    await user.save();
+
+    return { success: true, message: 'सुरक्षा PIN सफलतापूर्वक बदल दिया गया है' };
   }
 
   /**
@@ -390,6 +433,31 @@ class AuthService {
 
     await user.save();
     return this.getSettings(userId);
+  }
+
+  /**
+   * 10. Submit App Rating & Feedback
+   */
+  static async submitRating(data) {
+    const { rating, feedback, selectedChip, userId, phone, ownerName } = data;
+    if (!rating || rating < 1 || rating > 5) {
+      throw new Error('कृपया 1 से 5 के बीच स्टार रेटिंग चुनें');
+    }
+    const Rating = require('./rating.model');
+    const newRating = await Rating.create({
+      rating: Number(rating),
+      feedback: feedback ? String(feedback).slice(0, 500) : '',
+      selectedChip: selectedChip || '',
+      userId: userId || null,
+      phone: phone || '',
+      ownerName: ownerName || '',
+      platform: 'Android',
+    });
+    return {
+      success: true,
+      message: 'आपकी रेटिंग व प्रतिक्रिया सफलतापूर्वक दर्ज कर ली गई है! धन्यवाद।',
+      ratingId: newRating._id,
+    };
   }
 }
 

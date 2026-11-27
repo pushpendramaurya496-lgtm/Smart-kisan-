@@ -156,7 +156,7 @@ export const AuthApiService = {
   async loginWithPin(phone, mpin) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       const response = await fetch(`${AUTH_API_BASE_URL}/login-pin`, {
         method: 'POST',
@@ -168,30 +168,12 @@ export const AuthApiService = {
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json.message || 'गलत सुरक्षा PIN');
+        throw new Error(json.message || 'गलत सुरक्षा PIN दर्ज किया गया है');
       }
       return json.data;
     } catch (error) {
       if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('fetch')) {
-        console.warn('[AuthApiService] Server offline or network timeout:', error.message);
-      } else {
-        console.warn('[AuthApiService] PIN login warning:', error.message);
-      }
-      // If offline demo fallback:
-      if (mpin === '1234') {
-        return {
-          token: 'local_jwt_token_' + Date.now(),
-          user: {
-            phone,
-            role: 'OWNER',
-            isProfileCompleted: true,
-            profile: {
-              ownerName: 'रामलाल शर्मा',
-              chakkiName: 'श्री गणेश फ्लोर मिल',
-              village: 'चाकसू, जयपुर',
-            },
-          },
-        };
+        throw new Error('सर्वर से संपर्क नहीं हो सका। कृपया जांचें कि बैकएंड चालू है');
       }
       throw error;
     }
@@ -241,12 +223,82 @@ export const AuthApiService = {
   },
 
   /**
+   * 5.1 Verify Current (Old) 4-Digit MPIN
+   */
+  async verifyCurrentPin(token, mpin) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(`${AUTH_API_BASE_URL}/verify-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+        body: JSON.stringify({ mpin }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.message || 'गलत पुराना PIN! कृपया सही PIN दर्ज करें');
+      }
+      return json.data;
+    } catch (error) {
+      if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('fetch')) {
+        throw new Error('सर्वर से संपर्क नहीं हो पा रहा है। कृपया बैकएंड चालू रखें');
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * 5.2 Change MPIN with Old PIN Verification
+   */
+  async changePin(token, oldMpin, newMpin) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(`${AUTH_API_BASE_URL}/change-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+        body: JSON.stringify({ oldMpin, newMpin }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.message || 'PIN बदलने में विफल');
+      }
+      return json.data;
+    } catch (error) {
+      if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('fetch')) {
+        throw new Error('सर्वर से संपर्क नहीं हो पा रहा है। PIN सुरक्षित नहीं हुआ');
+      }
+      throw error;
+    }
+  },
+
+  /**
    * Store Auth Session in AsyncStorage
    */
-  async saveAuthSession(token, user) {
+  async saveAuthSession(token, user, loginPhone = null) {
     try {
-      await AsyncStorage.setItem('@chakki_token', token);
-      await AsyncStorage.setItem('@chakki_user', JSON.stringify(user));
+      const cleanPhone = loginPhone || user?.phone || '';
+      const userObj = {
+        ...(user || {}),
+        ...(cleanPhone ? { phone: cleanPhone } : {}),
+      };
+      if (token) await AsyncStorage.setItem('@chakki_token', token);
+      await AsyncStorage.setItem('@chakki_user', JSON.stringify(userObj));
+      if (cleanPhone) await AsyncStorage.setItem('@chakki_login_phone', cleanPhone);
     } catch (e) {}
   },
 
@@ -254,7 +306,12 @@ export const AuthApiService = {
     try {
       const token = await AsyncStorage.getItem('@chakki_token');
       const userStr = await AsyncStorage.getItem('@chakki_user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const savedPhone = await AsyncStorage.getItem('@chakki_login_phone');
+      let user = userStr ? JSON.parse(userStr) : null;
+      if (savedPhone) {
+        if (!user) user = { phone: savedPhone };
+        else if (!user.phone || user.phone === '9876543210') user.phone = savedPhone;
+      }
       return { token, user };
     } catch (e) {
       return { token: null, user: null };
@@ -289,10 +346,12 @@ export const AuthApiService = {
     }
 
     const { user } = await this.getAuthSession();
+    const savedLoginPhone = (await AsyncStorage.getItem('@chakki_login_phone')) || '';
+    const activePhone = user?.phone || savedLoginPhone || '';
     return {
       user: {
         id: user?.id || 'u1',
-        phone: user?.phone || '9569735570',
+        phone: activePhone,
         ownerName: user?.profile?.ownerName || 'Pushpendra Maurya',
         chakkiName: user?.profile?.chakkiName || 'Chakki Smart AI Flour Mill',
         village: user?.profile?.village || 'Rampur',
@@ -372,6 +431,52 @@ export const AuthApiService = {
       return true;
     } catch (e) {
       return false;
+    }
+  },
+
+  /**
+   * 9. Submit App Rating and Feedback
+   */
+  async submitRating({ rating, feedback, selectedChip }) {
+    try {
+      const { user, token } = await this.getAuthSession();
+      const payload = {
+        rating,
+        feedback,
+        selectedChip,
+        userId: user?.id || user?._id,
+        phone: user?.phone,
+        ownerName: user?.profile?.ownerName,
+      };
+
+      // Persist locally in AsyncStorage
+      await AsyncStorage.setItem(
+        '@chakki_app_rating',
+        JSON.stringify({
+          ...payload,
+          submittedAt: new Date().toISOString(),
+        })
+      );
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(`${AUTH_API_BASE_URL}/rate-app`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const json = await response.json();
+      return json.data || { success: true };
+    } catch (e) {
+      console.warn('Backend rating sync warning:', e.message);
+      return { success: true };
     }
   },
 };

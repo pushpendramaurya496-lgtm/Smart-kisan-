@@ -21,6 +21,8 @@ import { TodayMillingDashboardScreen } from '../screens/TodayMillingDashboardScr
 import { TotalCustomerDashboardScreen } from '../screens/TotalCustomerDashboardScreen';
 import { PendingBalanceDashboardScreen } from '../screens/PendingBalanceDashboardScreen';
 import { DeliveryHistoryScreen } from '../screens/DeliveryHistoryScreen';
+import { RateAppScreen } from '../screens/RateAppScreen';
+import { AboutFounderScreen } from '../screens/AboutFounderScreen';
 
 export const AppNavigator = () => {
   // App starts on the GetStarted Welcome Screen as requested
@@ -99,6 +101,14 @@ export const AppNavigator = () => {
       case 'DeliveryHistory':
       case 'History':
         return <DeliveryHistoryScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'RateApp':
+      case 'RateAppScreen':
+      case 'Rating':
+        return <RateAppScreen navigation={navigation} route={{ params: current.params }} />;
+      case 'AboutFounder':
+      case 'About':
+      case 'AboutScreen':
+        return <AboutFounderScreen navigation={navigation} route={{ params: current.params }} />;
       case 'Home':
       default:
         return <HomeScreen navigation={navigation} route={{ params: current.params }} />;

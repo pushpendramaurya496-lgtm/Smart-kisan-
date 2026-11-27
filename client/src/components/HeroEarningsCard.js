@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useChakki } from '../context/ChakkiContext';
 
 // Decorative etched wheat stalks artwork on right side of gradient card
 const DecorativeWheatArt = () => (
@@ -38,6 +39,7 @@ const DecorativeWheatArt = () => (
 );
 
 export const HeroEarningsCard = ({ earnings = 0, growthPercent = 0, onPress }) => {
+  const { t } = useChakki();
   const formattedEarnings = Number(earnings || 0).toLocaleString('en-IN');
 
   return (
@@ -54,7 +56,7 @@ export const HeroEarningsCard = ({ earnings = 0, growthPercent = 0, onPress }) =
       >
         {/* Left Section: Typography & Amount */}
         <View style={styles.leftContent}>
-          <Text style={styles.titleText}>Today's Earnings</Text>
+          <Text style={styles.titleText}>{t('todayEarnings')}</Text>
 
           <View style={styles.amountRow}>
             <Text style={styles.amountText}>₹ {formattedEarnings}</Text>

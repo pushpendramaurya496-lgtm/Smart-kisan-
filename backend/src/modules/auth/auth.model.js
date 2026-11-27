@@ -46,12 +46,18 @@ const userSchema = new mongoose.Schema(
     },
     servicesOffered: {
       type: [String],
-      default: ['PISAI', 'OIL', 'MASALA'],
+      default: ['PISAI', 'OIL', 'MASALA', 'DARRA', 'MATAR_BESAN', 'CHANA_BESAN', 'DHANIYA', 'MAKKA_AATA', 'CHAWAL'],
     },
     defaultRates: {
-      wheatPisaiPerKg: { type: Number, default: 3 },
-      oilExtractionPerKg: { type: Number, default: 7 },
-      masalaGrindingPerKg: { type: Number, default: 15 },
+      wheatPisaiPerKg: { type: Number, default: 3.5 },
+      oilExtractionPerKg: { type: Number, default: 15 },
+      masalaGrindingPerKg: { type: Number, default: 20 },
+      darraPisaiPerKg: { type: Number, default: 4 },
+      matarBesanPerKg: { type: Number, default: 6 },
+      chanaBesanPerKg: { type: Number, default: 7 },
+      dhaniyaPerKg: { type: Number, default: 20 },
+      makkaAataPerKg: { type: Number, default: 4.5 },
+      chawalPerKg: { type: Number, default: 4 },
     },
     mpin: {
       type: String, // Hashed 4-digit PIN for quick unlocks

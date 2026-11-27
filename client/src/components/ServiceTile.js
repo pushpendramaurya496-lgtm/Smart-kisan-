@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useChakki } from '../context/ChakkiContext';
 import {
   TileWheatIcon,
   TileOilIcon,
@@ -9,13 +10,14 @@ import {
 } from './illustrations/AppIllustrations';
 
 export const ServiceGrid = ({ onTilePress }) => {
+  const { t } = useChakki();
   const categories = [
     {
       id: 'pisai',
       type: 'WHEAT',
       IconComponent: TileWheatIcon,
-      title: 'Flour',
-      subtitle: 'Grain Milling',
+      title: t('pisaiTitle'),
+      subtitle: t('pisaiSub'),
       borderColor: '#0D9488', // Teal
       iconBg: '#F0FDFA', // Light Teal
     },
@@ -23,8 +25,8 @@ export const ServiceGrid = ({ onTilePress }) => {
       id: 'tel',
       type: 'OIL',
       IconComponent: TileOilIcon,
-      title: 'Oil',
-      subtitle: 'Pressing',
+      title: t('oilTitle'),
+      subtitle: t('oilSub'),
       borderColor: '#EA580C', // Orange
       iconBg: '#FFF7ED', // Light Orange
     },
@@ -32,8 +34,8 @@ export const ServiceGrid = ({ onTilePress }) => {
       id: 'masala',
       type: 'MASALA',
       IconComponent: TileMasalaIcon,
-      title: 'Spices',
-      subtitle: 'Grinding',
+      title: t('masalaTitle'),
+      subtitle: t('masalaSub'),
       borderColor: '#BE123C', // Red / Brown
       iconBg: '#FEF2F2', // Light Red
     },
@@ -41,8 +43,8 @@ export const ServiceGrid = ({ onTilePress }) => {
       id: 'stock',
       type: 'STOCK',
       IconComponent: TileStockIcon,
-      title: 'Stock',
-      subtitle: 'Management',
+      title: t('stockTitle'),
+      subtitle: t('stockSub'),
       borderColor: '#7C3AED', // Purple
       iconBg: '#FAF5FF', // Light Purple
     },

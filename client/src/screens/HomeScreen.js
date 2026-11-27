@@ -12,7 +12,7 @@ import { BottomDock } from '../components/BottomDock';
 import { useChakki } from '../context/ChakkiContext';
 
 export const HomeScreen = ({ navigation }) => {
-  const { stats, refreshStats } = useChakki();
+  const { stats, refreshStats, t } = useChakki();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -85,8 +85,8 @@ export const HomeScreen = ({ navigation }) => {
                 <Text style={styles.actionIcon}>🌾</Text>
               </View>
               <View style={styles.actionTextColumn}>
-                <Text style={styles.actionMainTitle}>+ नई पिसाई</Text>
-                <Text style={styles.actionSubtitle}>माल जमा / टोकन</Text>
+                <Text style={styles.actionMainTitle}>{t('newMillingBtn')}</Text>
+                <Text style={styles.actionSubtitle}>{t('newMillingSub')}</Text>
               </View>
             </TouchableOpacity>
 
@@ -100,8 +100,8 @@ export const HomeScreen = ({ navigation }) => {
                 <Text style={styles.actionIcon}>📦</Text>
               </View>
               <View style={styles.actionTextColumn}>
-                <Text style={styles.actionMainTitle}>माल लेने आए</Text>
-                <Text style={styles.actionSubtitle}>डिलिवरी व भुगतान</Text>
+                <Text style={styles.actionMainTitle}>{t('pickupDeliveryBtn')}</Text>
+                <Text style={styles.actionSubtitle}>{t('pickupDeliverySub')}</Text>
               </View>
             </TouchableOpacity>
           </View>

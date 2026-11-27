@@ -22,7 +22,7 @@ const createEntrySchema = Joi.object({
       'string.pattern.base': 'मान्य 10-अंकीय मोबाइल नंबर दर्ज करें',
     }),
   itemType: Joi.string()
-    .valid('WHEAT', 'OIL', 'MASALA', 'DARRA', 'OTHER')
+    .valid('WHEAT', 'OIL', 'MASALA', 'DARRA', 'MATAR_BESAN', 'CHANA_BESAN', 'DHANIYA', 'MAKKA_AATA', 'CHAWAL', 'OTHER')
     .default('WHEAT'),
   itemLabel: Joi.string().trim().max(50).optional(),
   ratePerKg: Joi.number().min(0).optional(),

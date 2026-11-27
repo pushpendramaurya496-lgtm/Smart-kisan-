@@ -12,7 +12,7 @@ const formatCleanNum = (val) => {
 };
 
 export const GrahakKhataScreen = ({ navigation, route }) => {
-  const { customers } = useChakki();
+  const { customers, language } = useChakki();
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top, 48);
 
@@ -34,12 +34,12 @@ export const GrahakKhataScreen = ({ navigation, route }) => {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text style={styles.backText}>◀</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>ग्राहक खाता</Text>
+          <Text style={styles.headerTitle}>{language === 'hi' ? 'ग्राहक खाता' : 'Customer Ledger'}</Text>
           <TouchableOpacity
             style={styles.newCustBtn}
             onPress={() => navigation.navigate('NewEntry')}
           >
-            <Text style={styles.newCustText}>+ नया</Text>
+            <Text style={styles.newCustText}>{language === 'hi' ? '+ नया' : '+ New'}</Text>
           </TouchableOpacity>
         </View>
 

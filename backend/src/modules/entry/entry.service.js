@@ -91,11 +91,23 @@ class EntryService {
     if (ratePerKg === undefined || ratePerKg === null) {
       const itemType = data.itemType || 'WHEAT';
       if (itemType === 'OIL') {
-        ratePerKg = owner.defaultRates?.oilExtractionPerKg || 7;
+        ratePerKg = owner.defaultRates?.oilExtractionPerKg || 15;
       } else if (itemType === 'MASALA') {
-        ratePerKg = owner.defaultRates?.masalaGrindingPerKg || 15;
+        ratePerKg = owner.defaultRates?.masalaGrindingPerKg || 20;
+      } else if (itemType === 'DARRA') {
+        ratePerKg = owner.defaultRates?.darraPisaiPerKg || 4;
+      } else if (itemType === 'MATAR_BESAN') {
+        ratePerKg = owner.defaultRates?.matarBesanPerKg || 6;
+      } else if (itemType === 'CHANA_BESAN') {
+        ratePerKg = owner.defaultRates?.chanaBesanPerKg || 7;
+      } else if (itemType === 'DHANIYA') {
+        ratePerKg = owner.defaultRates?.dhaniyaPerKg || 20;
+      } else if (itemType === 'MAKKA_AATA') {
+        ratePerKg = owner.defaultRates?.makkaAataPerKg || 4.5;
+      } else if (itemType === 'CHAWAL') {
+        ratePerKg = owner.defaultRates?.chawalPerKg || 4;
       } else {
-        ratePerKg = owner.defaultRates?.wheatPisaiPerKg || 3;
+        ratePerKg = owner.defaultRates?.wheatPisaiPerKg || 3.5;
       }
     }
 
@@ -103,8 +115,14 @@ class EntryService {
     const itemType = data.itemType || 'WHEAT';
     let itemLabel = data.itemLabel;
     if (!itemLabel) {
-      if (itemType === 'OIL') itemLabel = 'सरसों तेल पिसाई';
-      else if (itemType === 'MASALA') itemLabel = 'मसाला कुटाई';
+      if (itemType === 'OIL') itemLabel = 'सरसों तेल पिराई';
+      else if (itemType === 'MASALA') itemLabel = 'मसाला पिसाई';
+      else if (itemType === 'DARRA') itemLabel = 'दर्रा पिसाई';
+      else if (itemType === 'MATAR_BESAN') itemLabel = 'मटर बेसन';
+      else if (itemType === 'CHANA_BESAN') itemLabel = 'चना बेसन';
+      else if (itemType === 'DHANIYA') itemLabel = 'धनिया पिसाई';
+      else if (itemType === 'MAKKA_AATA') itemLabel = 'मक्का आटा';
+      else if (itemType === 'CHAWAL') itemLabel = 'चावल पिसाई';
       else itemLabel = 'गेहूं पिसाई';
     }
 

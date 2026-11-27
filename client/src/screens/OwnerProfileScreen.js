@@ -22,8 +22,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 600;
 
 export const OwnerProfileScreen = ({ navigation, route }) => {
-  const { token, phone = '9876543210' } = route.params || {};
-  const { t } = useChakki();
+  const { token, phone = '' } = route.params || {};
+  const { t, syncLoggedInUser } = useChakki();
   const insets = useSafeAreaInsets();
 
   const [ownerName, setOwnerName] = useState('');
@@ -87,8 +87,11 @@ export const OwnerProfileScreen = ({ navigation, route }) => {
         servicesOffered: selectedServices,
       });
 
-      // Save complete session
-      await AuthApiService.saveAuthSession(result.token || token, result.user);
+      // Save complete session & sync to context
+      await AuthApiService.saveAuthSession(result.token || token, result.user, phone);
+      if (syncLoggedInUser) {
+        await syncLoggedInUser(result.user, result.token || token, phone);
+      }
 
       setLoading(false);
       // Navigate straight to Main Dashboard!

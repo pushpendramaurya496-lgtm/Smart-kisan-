@@ -57,7 +57,7 @@ const getLastMillingInfo = (cust) => {
 export const NewEntryScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const { defaultType = 'WHEAT' } = route.params || {};
-  const { rates, refreshStats, addEntry, customers } = useChakki();
+  const { rates, refreshStats, addEntry, customers, language } = useChakki();
 
   // Mode: 'manual' | 'voice'
   const [entryMode, setEntryMode] = useState('manual');
@@ -123,10 +123,15 @@ export const NewEntryScreen = ({ navigation, route }) => {
 
   // Dynamic Rate calculation
   const getRate = () => {
-    if (selectedItem === 'OIL') return rates?.oilExtractionPerKg || 7;
-    if (selectedItem === 'MASALA') return rates?.masalaGrindingPerKg || 15;
+    if (selectedItem === 'OIL') return rates?.oilExtractionPerKg || 15;
+    if (selectedItem === 'MASALA') return rates?.masalaGrindingPerKg || 20;
     if (selectedItem === 'DARRA') return rates?.darraPisaiPerKg || 4;
-    return rates?.wheatPisaiPerKg || 3;
+    if (selectedItem === 'MATAR_BESAN') return rates?.matarBesanPerKg || 6;
+    if (selectedItem === 'CHANA_BESAN') return rates?.chanaBesanPerKg || 7;
+    if (selectedItem === 'DHANIYA') return rates?.dhaniyaPerKg || 20;
+    if (selectedItem === 'MAKKA_AATA') return rates?.makkaAataPerKg || 4.5;
+    if (selectedItem === 'CHAWAL') return rates?.chawalPerKg || 4;
+    return rates?.wheatPisaiPerKg || 3.5;
   };
 
   const currentRate = getRate();
@@ -229,15 +234,30 @@ export const NewEntryScreen = ({ navigation, route }) => {
     workingText = workingText.replace(/\b(?:wajan|vajan|weight)\b|वजन|भार/gi, ' ');
 
     // 4. EXTRACT ITEM TYPE
-    if (/सरसों|सरसो|राई|तेल|तिलहन|mustard|oil|tel/i.test(workingText)) {
+    if (/मटर\s*बेसन|matar\s*besan|मटर/i.test(workingText)) {
+      result.itemType = 'MATAR_BESAN';
+      workingText = workingText.replace(/मटर\s*बेसन|matar\s*besan|मटर/gi, ' ');
+    } else if (/चना\s*बेसन|chana\s*besan|चना|बेसन|chana|besan/i.test(workingText)) {
+      result.itemType = 'CHANA_BESAN';
+      workingText = workingText.replace(/चना\s*बेसन|chana\s*besan|चना|बेसन|chana|besan/gi, ' ');
+    } else if (/धनिया|dhaniya|coriander/i.test(workingText)) {
+      result.itemType = 'DHANIYA';
+      workingText = workingText.replace(/धनिया|dhaniya|coriander/gi, ' ');
+    } else if (/मक्का\s*आटा|makka\s*aata|मक्का|makka|maize/i.test(workingText)) {
+      result.itemType = 'MAKKA_AATA';
+      workingText = workingText.replace(/मक्का\s*आटा|makka\s*aata|मक्का|makka|maize/gi, ' ');
+    } else if (/चावल|धान|chawal|dhan|rice/i.test(workingText)) {
+      result.itemType = 'CHAWAL';
+      workingText = workingText.replace(/चावल|धान|chawal|dhan|rice/gi, ' ');
+    } else if (/दर्रा|दलिया|darra|dalya|daliya/i.test(workingText)) {
+      result.itemType = 'DARRA';
+      workingText = workingText.replace(/दर्रा|दलिया|darra|dalya|daliya/gi, ' ');
+    } else if (/सरसों|सरसो|राई|तेल|तिलहन|mustard|oil|tel/i.test(workingText)) {
       result.itemType = 'OIL';
       workingText = workingText.replace(/सरसों|सरसो|राई|तेल|तिलहन|mustard|oil|tel/gi, ' ');
-    } else if (/मसाला|मिर्च|हल्दी|धनिया|masala|spices|chilli/i.test(workingText)) {
+    } else if (/मसाला|मिर्च|हल्दी|masala|spices|chilli/i.test(workingText)) {
       result.itemType = 'MASALA';
-      workingText = workingText.replace(/मसाला|मिर्च|हल्दी|धनिया|masala|spices|chilli/gi, ' ');
-    } else if (/दर्रा|दलिया|मक्का|darra|dalya|daliya/i.test(workingText)) {
-      result.itemType = 'DARRA';
-      workingText = workingText.replace(/दर्रा|दलिया|मक्का|darra|dalya|daliya/gi, ' ');
+      workingText = workingText.replace(/मसाला|मिर्च|हल्दी|masala|spices|chilli/gi, ' ');
     } else if (/गेहूं|गेहू|कनक|wheat|gehun|gehu|atta|aata/i.test(workingText)) {
       result.itemType = 'WHEAT';
       workingText = workingText.replace(/गेहूं|गेहू|कनक|wheat|gehun|gehu|atta|aata/gi, ' ');
@@ -380,12 +400,22 @@ export const NewEntryScreen = ({ navigation, route }) => {
 
     // Prepare item label and today's date
     const itemLabel = selectedItem === 'OIL'
-      ? 'सरसों (तेल)'
+      ? 'सरसों तेल पिराई'
       : selectedItem === 'MASALA'
-      ? 'हल्दी / मसाला पिसाई'
+      ? 'मसाला पिसाई'
       : selectedItem === 'DARRA'
-      ? 'दर्रा / दलिया (पिसाई)'
-      : 'गेहूं (पिसाई)';
+      ? 'दर्रा पिसाई'
+      : selectedItem === 'MATAR_BESAN'
+      ? 'मटर बेसन'
+      : selectedItem === 'CHANA_BESAN'
+      ? 'चना बेसन'
+      : selectedItem === 'DHANIYA'
+      ? 'धनिया पिसाई'
+      : selectedItem === 'MAKKA_AATA'
+      ? 'मक्का आटा'
+      : selectedItem === 'CHAWAL'
+      ? 'चावल पिसाई'
+      : 'गेहूं पिसाई';
 
     const d = new Date();
     const day = String(d.getDate()).padStart(2, '0');
@@ -506,10 +536,10 @@ export const NewEntryScreen = ({ navigation, route }) => {
           style={styles.backBtn}
           activeOpacity={0.7}
         >
-          <Text style={styles.backBtnText}>← वापस</Text>
+          <Text style={styles.backBtnText}>{language === 'hi' ? '← वापस' : '← Back'}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.topBarTitle}>🌾 नई पिसाई एंट्री</Text>
+        <Text style={styles.topBarTitle}>{language === 'hi' ? '🌾 नई पिसाई एंट्री' : '🌾 New Milling Entry'}</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -528,7 +558,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
             activeOpacity={0.8}
           >
             <Text style={[styles.modeTabText, entryMode === 'manual' && styles.modeTabTextActive]}>
-              ✍️ हाथ से लिखें
+              {language === 'hi' ? '✍️ हाथ से लिखें' : '✍️ Manual Form'}
             </Text>
           </TouchableOpacity>
 
@@ -538,7 +568,7 @@ export const NewEntryScreen = ({ navigation, route }) => {
             activeOpacity={0.8}
           >
             <Text style={[styles.modeTabText, entryMode === 'voice' && styles.modeTabTextActive]}>
-              🎙️ पूरी एंट्री बोलकर भरें
+              {language === 'hi' ? '🎙️ पूरी एंट्री बोलकर भरें' : '🎙️ Add by Voice'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -758,10 +788,15 @@ export const NewEntryScreen = ({ navigation, route }) => {
             <Text style={styles.fieldLabel}>पिसाई का प्रकार</Text>
             <View style={styles.cropChipsRow}>
               {[
-                { id: 'WHEAT', label: '🌾 गेहूं पिसाई', rate: rates?.wheatPisaiPerKg || 3 },
-                { id: 'OIL', label: '🌻 सरसों तेल', rate: rates?.oilExtractionPerKg || 7 },
-                { id: 'MASALA', label: '🌶️ हल्दी / मसाला', rate: rates?.masalaGrindingPerKg || 15 },
-                { id: 'DARRA', label: '🌽 दर्रा पिसाई', rate: rates?.darraPisaiPerKg || 4 },
+                { id: 'WHEAT', label: '🌾 गेहूं पिसाई', rate: rates?.wheatPisaiPerKg || 3.5 },
+                { id: 'DARRA', label: '🥣 दर्रा पिसाई', rate: rates?.darraPisaiPerKg || 4 },
+                { id: 'MATAR_BESAN', label: '🟢 मटर बेसन', rate: rates?.matarBesanPerKg || 6 },
+                { id: 'CHANA_BESAN', label: '🧆 चना बेसन', rate: rates?.chanaBesanPerKg || 7 },
+                { id: 'DHANIYA', label: '🌿 धनिया पिसाई', rate: rates?.dhaniyaPerKg || 20 },
+                { id: 'MAKKA_AATA', label: '🌽 मक्का आटा', rate: rates?.makkaAataPerKg || 4.5 },
+                { id: 'CHAWAL', label: '🍚 चावल पिसाई', rate: rates?.chawalPerKg || 4 },
+                { id: 'OIL', label: '🌻 सरसों तेल', rate: rates?.oilExtractionPerKg || 15 },
+                { id: 'MASALA', label: '🌶️ मसाला पिसाई', rate: rates?.masalaGrindingPerKg || 20 },
               ].map((item) => (
                 <TouchableOpacity
                   key={item.id}

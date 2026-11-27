@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StorageService } from '../services/storageService';
-import { DefaultRates } from '../constants/defaultRates';
+import { DefaultRates, DefaultRateValues } from '../constants/defaultRates';
 import { SpeechService } from '../services/speechService';
 import { AuthApiService } from '../services/authApiService';
 import { DashboardApiService } from '../services/dashboardApiService';
@@ -34,7 +34,7 @@ export const ChakkiProvider = ({ children }) => {
   });
 
   const [customers, setCustomers] = useState([]);
-  const [rates, setRates] = useState(DefaultRates);
+  const [rates, setRates] = useState(DefaultRateValues);
   const [loading, setLoading] = useState(true);
   const [lastDeliveryTimestamp, setLastDeliveryTimestamp] = useState(Date.now());
 
@@ -68,8 +68,20 @@ export const ChakkiProvider = ({ children }) => {
         setLanguageState(savedLang);
       }
       const savedUserStr = await AsyncStorage.getItem('@chakki_user');
-      if (savedUserStr) {
-        setCurrentUser(JSON.parse(savedUserStr));
+      const savedPhone = await AsyncStorage.getItem('@chakki_login_phone');
+      let u = savedUserStr ? JSON.parse(savedUserStr) : null;
+      if (savedPhone) {
+        if (!u) {
+          u = { phone: savedPhone };
+        } else if (!u.phone || u.phone === '9876543210' || u.phone === '9569735570') {
+          u.phone = savedPhone;
+        }
+      }
+      if (u) {
+        setCurrentUser(u);
+        if (u.defaultRates) {
+          setRates((prev) => ({ ...DefaultRateValues, ...(prev || {}), ...u.defaultRates }));
+        }
       }
     } catch (e) {}
 
@@ -86,18 +98,52 @@ export const ChakkiProvider = ({ children }) => {
     } catch (e) {}
   };
 
+  // Real-time synchronization when user logs in with phone / PIN / OTP
+  const syncLoggedInUser = async (user, token, phone = null) => {
+    try {
+      const savedPhone = (await AsyncStorage.getItem('@chakki_login_phone')) || '';
+      const effectivePhone = phone || user?.phone || savedPhone || '';
+      const userObj = {
+        ...(currentUser || {}),
+        ...(user || {}),
+        phone: effectivePhone,
+        profile: {
+          ...(currentUser?.profile || {}),
+          ...(user?.profile || {}),
+        },
+        defaultRates: {
+          ...(currentUser?.defaultRates || {}),
+          ...(user?.defaultRates || {}),
+        },
+      };
+      setCurrentUser(userObj);
+      await AsyncStorage.setItem('@chakki_user', JSON.stringify(userObj));
+      if (effectivePhone) {
+        await AsyncStorage.setItem('@chakki_login_phone', effectivePhone);
+      }
+      if (token) {
+        await AsyncStorage.setItem('@chakki_token', token);
+      }
+      return userObj;
+    } catch (e) {
+      console.warn('syncLoggedInUser error in context:', e);
+    }
+  };
+
   // Update user profile and persist
   const updateUserProfile = async (updatedFields) => {
     try {
+      const savedPhone = (await AsyncStorage.getItem('@chakki_login_phone')) || '';
+      const finalPhone = updatedFields.phone || currentUser?.phone || savedPhone || '';
       const mergedUser = {
         ...(currentUser || {}),
         ...updatedFields,
-        phone: updatedFields.phone || currentUser?.phone || '9876543210',
+        phone: finalPhone,
         profile: {
           ...(currentUser?.profile || {}),
           ...(updatedFields.profile || {}),
         },
-        servicesOffered: updatedFields.servicesOffered || currentUser?.servicesOffered || ['PISAI', 'OIL', 'MASALA'],
+        servicesOffered: updatedFields.servicesOffered || currentUser?.servicesOffered || ['PISAI', 'OIL', 'MASALA', 'DARRA', 'MATAR_BESAN', 'CHANA_BESAN', 'DHANIYA', 'MAKKA_AATA', 'CHAWAL'],
         defaultRates: {
           ...(currentUser?.defaultRates || {}),
           ...(updatedFields.defaultRates || {}),
@@ -105,6 +151,9 @@ export const ChakkiProvider = ({ children }) => {
       };
       setCurrentUser(mergedUser);
       await AsyncStorage.setItem('@chakki_user', JSON.stringify(mergedUser));
+      if (finalPhone) {
+        await AsyncStorage.setItem('@chakki_login_phone', finalPhone);
+      }
 
       if (updatedFields.defaultRates) {
         setRates((prev) => ({ ...prev, ...updatedFields.defaultRates }));
@@ -516,6 +565,7 @@ export const ChakkiProvider = ({ children }) => {
         markOrderDelivered,
         lastDeliveryTimestamp,
         updateUserProfile,
+        syncLoggedInUser,
       }}
     >
       {children}

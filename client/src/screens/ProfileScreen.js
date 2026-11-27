@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChakki } from '../context/ChakkiContext';
 import { CloudinaryService } from '../services/cloudinaryService';
+import { AuthApiService } from '../services/authApiService';
 
 const farmerProfileImg = require('../../assets/icons/farmer_profile.png');
 
@@ -44,7 +45,7 @@ const PRESET_AVATARS = [
 ];
 
 export const ProfileScreen = ({ navigation }) => {
-  const { currentUser, updateUserProfile, rates } = useChakki();
+  const { currentUser, updateUserProfile, rates, language, t } = useChakki();
   const insets = useSafeAreaInsets();
 
   const [isEditingModal, setIsEditingModal] = useState(false);
@@ -54,7 +55,7 @@ export const ProfileScreen = ({ navigation }) => {
 
   // Profile data from context or reference defaults
   const [ownerName, setOwnerName] = useState(
-    currentUser?.profile?.ownerName || 'रामलाल शर्मा'
+    currentUser?.profile?.ownerName || 'Pushpendra Maurya'
   );
   const [chakkiName, setChakkiName] = useState(
     currentUser?.profile?.chakkiName || 'श्री गणेश फ्लोर मिल'
@@ -65,7 +66,33 @@ export const ProfileScreen = ({ navigation }) => {
   const [profileImage, setProfileImage] = useState(
     currentUser?.profile?.profileImage || null
   );
-  const phone = currentUser?.phone || '9569735570';
+  const [activePhone, setActivePhone] = useState(
+    currentUser?.phone || ''
+  );
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedPhone = await AsyncStorage.getItem('@chakki_login_phone');
+        const session = await AuthApiService.getAuthSession();
+        const p = currentUser?.phone || session?.user?.phone || savedPhone || '';
+        if (p && p !== activePhone) {
+          setActivePhone(p);
+        }
+        if (currentUser?.profile?.ownerName && currentUser.profile.ownerName !== ownerName) {
+          setOwnerName(currentUser.profile.ownerName);
+        }
+        if (currentUser?.profile?.chakkiName && currentUser.profile.chakkiName !== chakkiName) {
+          setChakkiName(currentUser.profile.chakkiName);
+        }
+        if (currentUser?.profile?.village && currentUser.profile.village !== village) {
+          setVillage(currentUser.profile.village);
+        }
+      } catch (e) {}
+    })();
+  }, [currentUser]);
+
+  const displayPhone = activePhone || currentUser?.phone || '9569735570';
 
   // Rates
   const [wheatRate, setWheatRate] = useState(
@@ -176,9 +203,12 @@ export const ProfileScreen = ({ navigation }) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (e) {}
 
+    const cleanPhone = (activePhone || currentUser?.phone || '').trim().replace(/\D/g, '');
+
     await updateUserProfile({
+      phone: cleanPhone,
       profile: {
-        ownerName: ownerName.trim() || 'रामलाल शर्मा',
+        ownerName: ownerName.trim() || 'Pushpendra Maurya',
         chakkiName: chakkiName.trim() || 'श्री गणेश फ्लोर मिल',
         village: village.trim() || 'चाकसू, जयपुर',
         profileImage,
@@ -189,6 +219,12 @@ export const ProfileScreen = ({ navigation }) => {
         masalaGrindingPerKg: parseFloat(masalaRate) || 15,
       },
     });
+
+    if (cleanPhone) {
+      try {
+        await AsyncStorage.setItem('@chakki_login_phone', cleanPhone);
+      } catch (e) {}
+    }
 
     setLoading(false);
     setIsEditingModal(false);
@@ -247,11 +283,11 @@ export const ProfileScreen = ({ navigation }) => {
               style={styles.headerBtn}
               activeOpacity={0.75}
             >
-              <Text style={styles.headerBtnText}>← वापस</Text>
+              <Text style={styles.headerBtnText}>{language === 'hi' ? '← वापस' : '← Back'}</Text>
             </TouchableOpacity>
 
-            {/* Center: White Bold Hindi Heading */}
-            <Text style={styles.headerTitle}>मेरी प्रोफाइल</Text>
+            {/* Center: White Bold Heading */}
+            <Text style={styles.headerTitle}>{t('myProfileTitle')}</Text>
 
             {/* Right: Translucent Edit Button */}
             <TouchableOpacity
@@ -259,7 +295,7 @@ export const ProfileScreen = ({ navigation }) => {
               style={styles.headerBtn}
               activeOpacity={0.75}
             >
-              <Text style={styles.headerBtnText}>✏️ बदलाव करें</Text>
+              <Text style={styles.headerBtnText}>{language === 'hi' ? '✏️ बदलाव करें' : '✏️ Edit'}</Text>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -315,7 +351,7 @@ export const ProfileScreen = ({ navigation }) => {
               <View style={styles.checkCircle}>
                 <Text style={styles.checkIcon}>✓</Text>
               </View>
-              <Text style={styles.verifiedText}>+91 {phone} (सत्यापित खाता)</Text>
+              <Text style={styles.verifiedText}>+91 {displayPhone} (सत्यापित खाता)</Text>
             </View>
           </View>
         </View>
@@ -362,7 +398,7 @@ export const ProfileScreen = ({ navigation }) => {
               </View>
               <Text style={styles.rowLabel}>मोबाइल नंबर</Text>
             </View>
-            <Text style={styles.rowValue}>+91 {phone}</Text>
+            <Text style={styles.rowValue}>+91 {displayPhone}</Text>
           </View>
 
           {/* Row 4: पता (गांव / शहर) */}
@@ -493,6 +529,16 @@ export const ProfileScreen = ({ navigation }) => {
                 value={village}
                 onChangeText={setVillage}
                 placeholder="उदा. चाकसू, जयपुर"
+              />
+
+              <Text style={styles.modalLabel}>मोबाइल नंबर (लॉगिन खाता)</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={activePhone}
+                onChangeText={setActivePhone}
+                placeholder="10 अंकों का मोबाइल नंबर"
+                keyboardType="phone-pad"
+                maxLength={10}
               />
 
               <Text style={[styles.modalLabel, { marginTop: 12 }]}>

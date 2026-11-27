@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChakki } from '../context/ChakkiContext';
 import { AuthApiService } from '../services/authApiService';
 
@@ -25,7 +26,7 @@ const isTablet = SCREEN_WIDTH >= 600;
 const headerScenicImg = require('../../assets/images/language_header_hd.jpg');
 
 export const LoginPhoneScreen = ({ navigation }) => {
-  const { t } = useChakki();
+  const { t, syncLoggedInUser } = useChakki();
   const insets = useSafeAreaInsets();
 
   // Mode: 'otp' | 'pin'
@@ -49,6 +50,11 @@ export const LoginPhoneScreen = ({ navigation }) => {
       } catch (e) {}
       return;
     }
+
+    // Save login phone immediately
+    try {
+      await AsyncStorage.setItem('@chakki_login_phone', cleanPhone);
+    } catch (e) {}
 
     setErrorMsg('');
     setLoading(true);
@@ -107,7 +113,10 @@ export const LoginPhoneScreen = ({ navigation }) => {
       setLoading(false);
 
       if (data.token) {
-        await AuthApiService.saveAuthSession(data.token, data.user);
+        await AuthApiService.saveAuthSession(data.token, data.user, cleanPhone);
+        if (syncLoggedInUser) {
+          await syncLoggedInUser(data.user, data.token, cleanPhone);
+        }
       }
 
       try {

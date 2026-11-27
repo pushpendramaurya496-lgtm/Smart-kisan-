@@ -97,6 +97,56 @@ const getCropDisplay = (customer) => {
     ''
   ).toString().toLowerCase();
 
+  if (itemStr.includes('मटर') || itemStr.includes('matar')) {
+    return {
+      label: 'मटर बेसन',
+      icon: '🟢',
+      bg: '#F0FDF4',
+      border: '#BBF7D0',
+      color: '#166534',
+      badgeBg: '#DCFCE7',
+    };
+  }
+  if (itemStr.includes('चना') || itemStr.includes('बेसन') || itemStr.includes('chana') || itemStr.includes('besan')) {
+    return {
+      label: 'चना बेसन',
+      icon: '🧆',
+      bg: '#FEFCE8',
+      border: '#FEF08A',
+      color: '#854D0E',
+      badgeBg: '#FEF9C3',
+    };
+  }
+  if (itemStr.includes('धनिया') || itemStr.includes('dhaniya')) {
+    return {
+      label: 'धनिया पिसाई',
+      icon: '🌿',
+      bg: '#ECFDF5',
+      border: '#A7F3D0',
+      color: '#065F46',
+      badgeBg: '#D1FAE5',
+    };
+  }
+  if (itemStr.includes('मक्का') || itemStr.includes('makka')) {
+    return {
+      label: 'मक्का आटा',
+      icon: '🌽',
+      bg: '#FFFBEB',
+      border: '#FDE68A',
+      color: '#B45309',
+      badgeBg: '#FEF3C7',
+    };
+  }
+  if (itemStr.includes('चावल') || itemStr.includes('धान') || itemStr.includes('chawal')) {
+    return {
+      label: 'चावल पिसाई',
+      icon: '🍚',
+      bg: '#F8FAFC',
+      border: '#CBD5E1',
+      color: '#334155',
+      badgeBg: '#E2E8F0',
+    };
+  }
   if (itemStr.includes('तेल') || itemStr.includes('सरसों') || itemStr.includes('oil') || itemStr.includes('mustard')) {
     return {
       label: 'सरसों (तेल पिराई)',
@@ -109,7 +159,7 @@ const getCropDisplay = (customer) => {
   }
   if (itemStr.includes('मसाला') || itemStr.includes('मिर्च') || itemStr.includes('हल्दी') || itemStr.includes('masala') || itemStr.includes('haldi')) {
     return {
-      label: 'मसाला (कुटाई)',
+      label: 'मसाला पिसाई',
       icon: '🌶️',
       bg: '#FEF2F2',
       border: '#FECACA',
@@ -117,10 +167,10 @@ const getCropDisplay = (customer) => {
       badgeBg: '#FEE2E2',
     };
   }
-  if (itemStr.includes('दर्रा') || itemStr.includes('दलिया') || itemStr.includes('मक्का') || itemStr.includes('darra')) {
+  if (itemStr.includes('दर्रा') || itemStr.includes('दलिया') || itemStr.includes('darra')) {
     return {
-      label: 'दर्रा / दलिया पिसाई',
-      icon: '🌽',
+      label: 'दर्रा पिसाई',
+      icon: '🥣',
       bg: '#FAF5FF',
       border: '#E9D5FF',
       color: '#7E22CE',
@@ -138,7 +188,7 @@ const getCropDisplay = (customer) => {
 };
 
 export const PickupDeliveryScreen = ({ navigation }) => {
-  const { stats, customers: contextCustomers, refreshStats, markOrderDelivered } = useChakki();
+  const { stats, customers: contextCustomers, refreshStats, markOrderDelivered, language } = useChakki();
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
 
@@ -432,7 +482,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
     if (!text) return;
     try {
       Haptics.selectionAsync();
-    } catch (e) {}
+    } catch (e) { }
     setSearchQuery(text);
     setShowVoiceSearchModal(false);
     SpeechService.speak(`${text} खोजा गया है।`);
@@ -511,7 +561,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
   const handleCustomerPress = (customer) => {
     try {
       Haptics.selectionAsync();
-    } catch (e) {}
+    } catch (e) { }
     const hasPending = (customer.pendingBalance || 0) > 0;
     if (!hasPending) {
       handleDeliverOrder(customer);
@@ -528,7 +578,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
   const handleDeliverOrder = async (customer) => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {}
+    } catch (e) { }
 
     const sId = String(customer.id || customer.customerId || customer._id || customer.name);
     const custName = customer.name || customer.customerName || 'ग्राहक';
@@ -555,7 +605,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
         paymentMethod: 'CASH',
         notes: 'माल सुपुर्दगी दर्ज',
       });
-    } catch (err) {}
+    } catch (err) { }
 
     // 2. Mark in Context & Local Storage (Pushes immediately to top of Delivery History)
     if (markOrderDelivered) {
@@ -795,8 +845,8 @@ export const PickupDeliveryScreen = ({ navigation }) => {
 
           {/* Title & Subtitle */}
           <View style={styles.titleColumn}>
-            <Text style={styles.headerMainTitle}>आटा चक्की</Text>
-            <Text style={styles.headerSubtitle}>ग्राहक प्रबंधन प्रणाली</Text>
+            <Text style={styles.headerMainTitle}>{language === 'hi' ? 'आटा चक्की' : 'Flour Mill'}</Text>
+            <Text style={styles.headerSubtitle}>{language === 'hi' ? 'ग्राहक प्रबंधन प्रणाली' : 'Customer Management'}</Text>
           </View>
 
           {/* Right: Date Selector Pill */}
@@ -825,7 +875,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               </View>
               {/* Label & Number */}
               <View style={styles.statTextCol}>
-                <Text style={styles.statLabel}>कुल ग्राहक</Text>
+                <Text style={styles.statLabel}>{language === 'hi' ? 'कुल ग्राहक' : 'Total Customers'}</Text>
                 <Text style={styles.statValueGreen}>
                   {totalCustomersCount}
                 </Text>
@@ -850,7 +900,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
               </View>
               {/* Label & Number */}
               <View style={styles.statTextCol}>
-                <Text style={styles.statLabel}>आज की एंट्री</Text>
+                <Text style={styles.statLabel}>{language === 'hi' ? 'आज की एंट्री' : "Today's Entries"}</Text>
                 <Text style={styles.statValueDark}>
                   {todayEntriesCount}
                 </Text>
@@ -870,7 +920,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="ग्राहक का नाम या गाँव लिखकर खोजें..."
+            placeholder={language === 'hi' ? 'ग्राहक का नाम या गाँव लिखकर खोजें...' : 'Search by customer name or village...'}
             placeholderTextColor="#94A3B8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -890,7 +940,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
           <TouchableOpacity
             style={styles.searchMicBtn}
             onPress={() => {
-              try { Haptics.selectionAsync(); } catch (e) {}
+              try { Haptics.selectionAsync(); } catch (e) { }
               setVoiceQueryText(searchQuery);
               setShowVoiceSearchModal(true);
             }}
@@ -1228,7 +1278,7 @@ export const PickupDeliveryScreen = ({ navigation }) => {
                 onPress={() => {
                   try {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  } catch (e) {}
+                  } catch (e) { }
                   SpeechService.speak('ग्राहक का नाम या गाँव बोलें');
                 }}
               >

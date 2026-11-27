@@ -20,8 +20,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 600;
 
 export const OtpVerifyScreen = ({ navigation, route }) => {
-  const { phone = '9876543210', devOtp = '1234', mode = 'otp' } = route.params || {};
-  const { t } = useChakki();
+  const { phone = '', devOtp = '1234', mode = 'otp' } = route.params || {};
+  const { t, syncLoggedInUser } = useChakki();
   const insets = useSafeAreaInsets();
 
   const [otp, setOtp] = useState(['', '', '', '']);
@@ -89,8 +89,11 @@ export const OtpVerifyScreen = ({ navigation, route }) => {
         return;
       }
 
-      // Save token
-      await AuthApiService.saveAuthSession(data.token, data.user);
+      // Save token and sync logged in phone & user session
+      await AuthApiService.saveAuthSession(data.token, data.user, phone);
+      if (syncLoggedInUser) {
+        await syncLoggedInUser(data.user, data.token, phone);
+      }
 
       // If user profile is already completed -> go to Dashboard (Home)
       // If new user -> go to Profile Setup screen

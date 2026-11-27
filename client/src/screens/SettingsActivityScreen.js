@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChakki } from '../context/ChakkiContext';
 import { AuthApiService } from '../services/authApiService';
 import { SpeechService } from '../services/speechService';
@@ -382,7 +383,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top || 0, 36) + 4;
 
-  const { currentUser, logoutUser, language, setLanguage, rates, updateUserProfile } = useChakki();
+  const { currentUser, logoutUser, language, setLanguage, rates, updateUserProfile, t } = useChakki();
 
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
@@ -394,56 +395,97 @@ export const SettingsActivityScreen = ({ navigation }) => {
   const [wheatRate, setWheatRate] = useState(String(rates?.wheatPisaiPerKg || '3.5'));
   const [oilRate, setOilRate] = useState(String(rates?.oilExtractionPerKg || '15'));
   const [masalaRate, setMasalaRate] = useState(String(rates?.masalaGrindingPerKg || '20'));
+  const [darraRate, setDarraRate] = useState(String(rates?.darraPisaiPerKg || '4'));
+  const [matarBesanRate, setMatarBesanRate] = useState(String(rates?.matarBesanPerKg || '6'));
+  const [chanaBesanRate, setChanaBesanRate] = useState(String(rates?.chanaBesanPerKg || '7'));
+  const [dhaniyaRate, setDhaniyaRate] = useState(String(rates?.dhaniyaPerKg || '20'));
+  const [makkaAataRate, setMakkaAataRate] = useState(String(rates?.makkaAataPerKg || '4.5'));
+  const [chawalRate, setChawalRate] = useState(String(rates?.chawalPerKg || '4'));
+
+  useEffect(() => {
+    if (rates) {
+      if (rates.wheatPisaiPerKg !== undefined) setWheatRate(String(rates.wheatPisaiPerKg));
+      if (rates.oilExtractionPerKg !== undefined) setOilRate(String(rates.oilExtractionPerKg));
+      if (rates.masalaGrindingPerKg !== undefined) setMasalaRate(String(rates.masalaGrindingPerKg));
+      if (rates.darraPisaiPerKg !== undefined) setDarraRate(String(rates.darraPisaiPerKg));
+      if (rates.matarBesanPerKg !== undefined) setMatarBesanRate(String(rates.matarBesanPerKg));
+      if (rates.chanaBesanPerKg !== undefined) setChanaBesanRate(String(rates.chanaBesanPerKg));
+      if (rates.dhaniyaPerKg !== undefined) setDhaniyaRate(String(rates.dhaniyaPerKg));
+      if (rates.makkaAataPerKg !== undefined) setMakkaAataRate(String(rates.makkaAataPerKg));
+      if (rates.chawalPerKg !== undefined) setChawalRate(String(rates.chawalPerKg));
+    }
+  }, [rates]);
 
   // Voice State
   const [voiceAlertsOn, setVoiceAlertsOn] = useState(true);
 
-  // Security MPIN State
+  // Security MPIN State (2-step: 'OLD_PIN' -> 'NEW_PIN')
+  const [pinStep, setPinStep] = useState('OLD_PIN'); // 'OLD_PIN' | 'NEW_PIN'
+  const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinError, setPinError] = useState('');
 
   // Determine user login state
   const isLoggedIn = Boolean(currentUser && (currentUser.phone || currentUser.profile?.ownerName));
   const ownerDisplayName = currentUser?.profile?.ownerName || 'Pushpendra Maurya';
+  const ownerPhone = currentUser?.phone || '';
+  const profileSubtitle = ownerPhone
+    ? `+91 ${ownerPhone} • ${t('menuProfileSub')}`
+    : t('menuProfileSub');
 
-  // Real-time filtering definition
+  // Real-time filtering definition (dynamically translated based on language)
   const allMenuItems = [
     {
       id: 'profile',
       section: 'account',
-      title: 'Chakki Owner Profile',
-      subtitle: 'Personal details, business info, credentials, security',
+      title: t('menuProfile'),
+      subtitle: profileSubtitle,
       icon: AccountOutlineIcon,
       action: () => navigation.navigate('Profile'),
-      keywords: 'profile owner name business credentials pushpendra maurya chakki account',
+      keywords: 'profile owner name business credentials pushpendra maurya chakki account malik phone mobile',
     },
     {
       id: 'rates',
       section: 'milling',
-      title: 'Milling rates pricing',
+      title: t('menuRates'),
+      subtitle: t('menuRatesSub'),
       icon: PriceTagOutlineIcon,
       action: () => setActiveModal('RATES'),
-      keywords: 'rates pricing wheat pisai mustard oil masala per kg rate bhav kimat daam',
+      keywords: 'rates pricing wheat pisai mustard oil masala per kg rate bhav kimat daam dar',
     },
     {
       id: 'voice',
       section: 'milling',
-      title: 'Voice and audio settings',
+      title: t('menuVoice'),
+      subtitle: t('menuVoiceSub'),
       icon: MicOutlineIcon,
       action: () => setActiveModal('VOICE'),
-      keywords: 'voice audio sound soundbox mic speech alerts announcement bolkar',
+      keywords: 'voice audio sound soundbox mic speech alerts announcement bolkar awaz',
     },
     {
       id: 'security',
       section: 'milling',
-      title: 'Security and app',
+      title: t('menuSecurity'),
+      subtitle: t('menuSecuritySub'),
       icon: ShieldLockOutlineIcon,
-      action: () => setActiveModal('SECURITY'),
+      action: () => {
+        setPinStep('OLD_PIN');
+        setOldPin('');
+        setNewPin('');
+        setConfirmPin('');
+        setPinError('');
+        setPinLoading(false);
+        setActiveModal('SECURITY');
+      },
       keywords: 'security app pin mpin password lock privacy suraksha',
     },
     {
       id: 'khata',
       section: 'milling',
-      title: 'Transactions & khata',
+      title: t('menuKhata'),
+      subtitle: t('menuKhataSub'),
       icon: RupeeNoteOutlineIcon,
       action: () => navigation.navigate('GrahakKhata'),
       keywords: 'transactions khata balance ledger bahikhata payment udhari hisaab',
@@ -451,8 +493,9 @@ export const SettingsActivityScreen = ({ navigation }) => {
     {
       id: 'premium',
       section: 'subscriptions',
-      title: 'Chakki Premium',
-      rightText: 'Not active',
+      title: t('menuPremium'),
+      subtitle: t('menuPremiumSub'),
+      rightText: t('notActiveBadge'),
       icon: StarBadgeOutlineIcon,
       action: () => setActiveModal('PREMIUM'),
       keywords: 'chakki premium subscription vip cloud backup plan membership',
@@ -460,8 +503,9 @@ export const SettingsActivityScreen = ({ navigation }) => {
     {
       id: 'sms',
       section: 'subscriptions',
-      title: 'SMS alerts package',
-      rightText: 'Active',
+      title: t('menuSms'),
+      subtitle: t('menuSmsSub'),
+      rightText: t('activeBadge'),
       rightTextColor: '#16A34A',
       icon: SmsOutlineIcon,
       action: () => setActiveModal('SMS'),
@@ -470,35 +514,38 @@ export const SettingsActivityScreen = ({ navigation }) => {
     {
       id: 'language',
       section: 'support',
-      title: 'Language',
-      rightText: language === 'hi' ? 'हिन्दी / English' : 'English / हिन्दी',
+      title: t('menuLanguage'),
+      rightText: language === 'hi' ? 'हिंदी (Hindi)' : 'English (अंग्रेजी)',
       icon: GlobeOutlineIcon,
       action: () => setActiveModal('LANGUAGE'),
-      keywords: 'language bhasha hindi english bhashayein',
+      keywords: 'language bhasha hindi english bhashayein angreji',
     },
     {
       id: 'share',
       section: 'support',
-      title: 'Share app',
+      title: t('menuShare'),
+      subtitle: t('menuShareSub'),
       icon: ShareOutlineIcon,
       action: () => handleShareApp(),
-      keywords: 'share app invite whatsapp dost link',
+      keywords: 'share app invite whatsapp dost link bheje',
     },
     {
       id: 'rate_app',
       section: 'support',
-      title: 'Rate app',
+      title: t('menuRateApp'),
+      subtitle: t('menuRateAppSub'),
       icon: StarOutlineIcon,
-      action: () => handleRateApp(),
-      keywords: 'rate app star review play store feedback',
+      action: () => navigation.navigate('RateApp'),
+      keywords: 'rate app star review play store feedback rating',
     },
     {
       id: 'about',
       section: 'support',
-      title: 'About',
+      title: t('menuAbout'),
+      subtitle: t('menuAboutSub'),
       icon: InfoOutlineIcon,
-      action: () => setActiveModal('ABOUT'),
-      keywords: 'about info version chakki smart ai kisan sathi',
+      action: () => navigation.navigate('AboutFounder'),
+      keywords: 'about info version chakki smart ai kisan sathi bare me jankari founder anish maurya ashutosh mishra',
     },
   ];
 
@@ -529,8 +576,10 @@ export const SettingsActivityScreen = ({ navigation }) => {
   const handleRateApp = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert(
-      '⭐ ऐप रेटिंग',
-      'चक्की स्मार्ट AI का उपयोग करने के लिए धन्यवाद! आपकी 5-स्टार रेटिंग हमें और बेहतर सुविधाएँ लाने में मदद करती है।'
+      language === 'hi' ? '⭐ ऐप रेटिंग' : '⭐ Rate App',
+      language === 'hi'
+        ? 'चक्की स्मार्ट AI का उपयोग करने के लिए धन्यवाद! आपकी 5-स्टार रेटिंग हमें और बेहतर सुविधाएँ लाने में मदद करती है।'
+        : 'Thank you for using Chakki Smart AI! Your 5-star rating helps us bring even better features.'
     );
   };
 
@@ -539,35 +588,149 @@ export const SettingsActivityScreen = ({ navigation }) => {
     const w = parseFloat(wheatRate) || 3.5;
     const o = parseFloat(oilRate) || 15;
     const m = parseFloat(masalaRate) || 20;
+    const d = parseFloat(darraRate) || 4;
+    const mb = parseFloat(matarBesanRate) || 6;
+    const cb = parseFloat(chanaBesanRate) || 7;
+    const dh = parseFloat(dhaniyaRate) || 20;
+    const ma = parseFloat(makkaAataRate) || 4.5;
+    const ch = parseFloat(chawalRate) || 4;
 
     await updateUserProfile({
       defaultRates: {
         wheatPisaiPerKg: w,
         oilExtractionPerKg: o,
         masalaGrindingPerKg: m,
+        darraPisaiPerKg: d,
+        matarBesanPerKg: mb,
+        chanaBesanPerKg: cb,
+        dhaniyaPerKg: dh,
+        makkaAataPerKg: ma,
+        chawalPerKg: ch,
       },
     });
 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {}
-    Alert.alert('दरें अपडेट हुईं', `गेहूं: ₹${w}/kg, सरसों: ₹${o}/kg, मसाला: ₹${m}/kg`);
+    Alert.alert(t('ratesSavedTitle'), t('ratesSavedMsg'));
     setActiveModal(null);
   };
 
-  // Handle Save PIN
-  const handleSavePin = async () => {
-    if (newPin.length !== 4) {
-      Alert.alert('त्रुटि', 'कृपया 4 अंकों का सुरक्षा PIN दर्ज करें');
+  // 1. Verify Old PIN (Step 1)
+  const handleVerifyOldPin = async () => {
+    const cleanOldPin = oldPin.trim().replace(/\D/g, '');
+    if (cleanOldPin.length !== 4) {
+      setPinError(t('oldPinLenErr'));
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
       return;
     }
-    await updateUserProfile({ mpin: newPin });
+
+    setPinError('');
+    setPinLoading(true);
+
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {}
-    Alert.alert('सुरक्षा PIN', 'नया 4-अंकीय MPIN सफलतापूर्वक सेट कर दिया गया है');
-    setNewPin('');
+      const token = (await AsyncStorage.getItem('@chakki_token')) || currentUser?.token;
+      if (!token) {
+        throw new Error(t('sessionExpiredErr'));
+      }
+      await AuthApiService.verifyCurrentPin(token, cleanOldPin);
+      setPinLoading(false);
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (e) {}
+      setPinStep('NEW_PIN');
+    } catch (err) {
+      setPinLoading(false);
+      setPinError(err.message || t('oldPinWrongErr'));
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
+    }
+  };
+
+  // 2. Save New PIN (Step 2)
+  const handleSaveNewPin = async () => {
+    const cleanNewPin = newPin.trim().replace(/\D/g, '');
+    const cleanConfirmPin = confirmPin.trim().replace(/\D/g, '');
+
+    if (cleanNewPin.length !== 4) {
+      setPinError(t('pinLenErr'));
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
+      return;
+    }
+
+    if (cleanNewPin !== cleanConfirmPin) {
+      setPinError(t('pinMismatchErr'));
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
+      return;
+    }
+
+    if (cleanNewPin === oldPin) {
+      setPinError(language === 'hi' ? 'नया PIN पुराने PIN से अलग होना चाहिए' : 'New PIN must be different from old PIN');
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
+      return;
+    }
+
+    setPinError('');
+    setPinLoading(true);
+
+    try {
+      const token = (await AsyncStorage.getItem('@chakki_token')) || currentUser?.token;
+      if (!token) {
+        throw new Error(t('sessionExpiredErr'));
+      }
+      await AuthApiService.changePin(token, oldPin, cleanNewPin);
+      await updateUserProfile({ mpin: cleanNewPin });
+
+      setPinLoading(false);
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (e) {}
+
+      Alert.alert(
+        t('pinSavedTitle'),
+        t('pinSavedSuccessMsg')
+      );
+      setOldPin('');
+      setNewPin('');
+      setConfirmPin('');
+      setPinStep('OLD_PIN');
+      setActiveModal(null);
+    } catch (err) {
+      setPinLoading(false);
+      setPinError(err.message || (language === 'hi' ? 'PIN सुरक्षित करने में त्रुटि हुई' : 'Failed to save PIN'));
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch (e) {}
+    }
+  };
+
+  // 3. Forgot Old PIN option
+  const handleForgotOldPin = () => {
     setActiveModal(null);
+    Alert.alert(
+      language === 'hi' ? 'सुरक्षा PIN भूल गए?' : 'Forgot Security PIN?',
+      language === 'hi'
+        ? 'क्या आप अपने पंजीकृत मोबाइल नंबर पर OTP प्राप्त करके PIN रीसेट करना चाहते हैं?'
+        : 'Do you want to reset your PIN via OTP on your registered mobile number?',
+      [
+        { text: language === 'hi' ? 'रद्द करें' : 'Cancel', style: 'cancel' },
+        {
+          text: language === 'hi' ? 'OTP से बदलें' : 'Reset via OTP',
+          onPress: () => {
+            navigation.navigate('LoginPhone');
+          },
+        },
+      ]
+    );
   };
 
   // Handle Logout Confirmation (Requirement 7)
@@ -577,15 +740,15 @@ export const SettingsActivityScreen = ({ navigation }) => {
     } catch (e) {}
 
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      language === 'hi' ? 'लॉगआउट' : 'Logout',
+      language === 'hi' ? 'क्या आप वाकई लॉगआउट करना चाहते हैं?' : 'Are you sure you want to logout?',
       [
         {
-          text: 'Cancel',
+          text: language === 'hi' ? 'रद्द करें' : 'Cancel',
           style: 'cancel',
         },
         {
-          text: 'Logout',
+          text: language === 'hi' ? 'लॉगआउट' : 'Logout',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -663,7 +826,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
           <BackArrowIcon size={22} color="#000000" />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Settings and activity</Text>
+        <Text style={styles.headerTitle}>{t('settingsTitle')}</Text>
       </View>
 
       <ScrollView
@@ -676,7 +839,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
           <Text style={styles.searchMagnifierIcon}>🔍</Text>
           <TextInput
             style={styles.searchTextInput}
-            placeholder="Search"
+            placeholder={t('searchPlaceholder')}
             placeholderTextColor="#8E8E93"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -692,7 +855,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
         {/* 3. YOUR ACCOUNT SECTION */}
         {accountItems.length > 0 && (
           <View style={styles.sectionWrapper}>
-            <Text style={styles.sectionHeading}>Your account</Text>
+            <Text style={styles.sectionHeading}>{t('sectionAccount')}</Text>
             {accountItems.map(renderItemRow)}
           </View>
         )}
@@ -703,7 +866,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
         {/* 4. MILLING AND FINANCE SECTION */}
         {millingItems.length > 0 && (
           <View style={styles.sectionWrapper}>
-            <Text style={styles.sectionHeading}>Milling and finance</Text>
+            <Text style={styles.sectionHeading}>{t('sectionMilling')}</Text>
             {millingItems.map(renderItemRow)}
           </View>
         )}
@@ -714,7 +877,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
         {/* 5. SUBSCRIPTIONS SECTION */}
         {subscriptionItems.length > 0 && (
           <View style={styles.sectionWrapper}>
-            <Text style={styles.sectionHeading}>Subscriptions</Text>
+            <Text style={styles.sectionHeading}>{t('sectionSubscriptions')}</Text>
             {subscriptionItems.map(renderItemRow)}
           </View>
         )}
@@ -725,7 +888,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
         {/* 6. MORE INFO AND SUPPORT SECTION */}
         {supportItems.length > 0 && (
           <View style={styles.sectionWrapper}>
-            <Text style={styles.sectionHeading}>More info and support</Text>
+            <Text style={styles.sectionHeading}>{t('sectionSupport')}</Text>
             {supportItems.map(renderItemRow)}
           </View>
         )}
@@ -742,7 +905,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
               activeOpacity={0.88}
             >
               <Text style={styles.logoutButtonIcon}>🚪</Text>
-              <Text style={styles.logoutButtonText}>Logout</Text>
+              <Text style={styles.logoutButtonText}>{t('logoutBtn')}</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -750,12 +913,12 @@ export const SettingsActivityScreen = ({ navigation }) => {
               onPress={() => navigation.navigate('LoginPhone')}
               activeOpacity={0.88}
             >
-              <Text style={styles.loginButtonText}>Login</Text>
+              <Text style={styles.loginButtonText}>{t('loginBtn')}</Text>
             </TouchableOpacity>
           )}
 
           <Text style={styles.appVersionFooter}>
-            Chakki Smart AI • Version 1.2.0 (Build 42)
+            {t('appVersion')}
           </Text>
         </View>
 
@@ -780,50 +943,130 @@ export const SettingsActivityScreen = ({ navigation }) => {
         >
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>🏷️ Milling Rates Pricing</Text>
-            <Text style={styles.modalSubtitle}>प्रति किलो पिसाई व पिराई दरें सेट करें</Text>
+            <Text style={styles.modalTitle}>{t('ratesModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>{t('ratesModalSub')}</Text>
 
-            {/* Wheat Rate */}
-            <Text style={styles.rateLabel}>गेहूं पिसाई दर (₹ / kg):</Text>
-            <View style={styles.rateInputRow}>
-              <Text style={styles.rupeeTag}>₹</Text>
-              <TextInput
-                style={styles.rateInputField}
-                keyboardType="numeric"
-                value={wheatRate}
-                onChangeText={setWheatRate}
-              />
-              <Text style={styles.unitTag}>/ kg</Text>
-            </View>
+            <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {/* Wheat Rate */}
+              <Text style={styles.rateLabel}>{t('wheatRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={wheatRate}
+                  onChangeText={setWheatRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
 
-            {/* Oil Rate */}
-            <Text style={styles.rateLabel}>सरसों तेल पिराई दर (₹ / kg):</Text>
-            <View style={styles.rateInputRow}>
-              <Text style={styles.rupeeTag}>₹</Text>
-              <TextInput
-                style={styles.rateInputField}
-                keyboardType="numeric"
-                value={oilRate}
-                onChangeText={setOilRate}
-              />
-              <Text style={styles.unitTag}>/ kg</Text>
-            </View>
+              {/* Darra Rate */}
+              <Text style={styles.rateLabel}>{t('darraRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={darraRate}
+                  onChangeText={setDarraRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
 
-            {/* Masala Rate */}
-            <Text style={styles.rateLabel}>मसाला पिसाई दर (₹ / kg):</Text>
-            <View style={styles.rateInputRow}>
-              <Text style={styles.rupeeTag}>₹</Text>
-              <TextInput
-                style={styles.rateInputField}
-                keyboardType="numeric"
-                value={masalaRate}
-                onChangeText={setMasalaRate}
-              />
-              <Text style={styles.unitTag}>/ kg</Text>
-            </View>
+              {/* Matar Besan Rate */}
+              <Text style={styles.rateLabel}>{t('matarBesanRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={matarBesanRate}
+                  onChangeText={setMatarBesanRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Chana Besan Rate */}
+              <Text style={styles.rateLabel}>{t('chanaBesanRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={chanaBesanRate}
+                  onChangeText={setChanaBesanRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Dhaniya Rate */}
+              <Text style={styles.rateLabel}>{t('dhaniyaRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={dhaniyaRate}
+                  onChangeText={setDhaniyaRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Makka Aata Rate */}
+              <Text style={styles.rateLabel}>{t('makkaAataRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={makkaAataRate}
+                  onChangeText={setMakkaAataRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Chawal Rate */}
+              <Text style={styles.rateLabel}>{t('chawalRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={chawalRate}
+                  onChangeText={setChawalRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Oil Rate */}
+              <Text style={styles.rateLabel}>{t('oilRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={oilRate}
+                  onChangeText={setOilRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+
+              {/* Masala Rate */}
+              <Text style={styles.rateLabel}>{t('masalaRateLabel')}</Text>
+              <View style={styles.rateInputRow}>
+                <Text style={styles.rupeeTag}>₹</Text>
+                <TextInput
+                  style={styles.rateInputField}
+                  keyboardType="numeric"
+                  value={masalaRate}
+                  onChangeText={setMasalaRate}
+                />
+                <Text style={styles.unitTag}>{t('perKgUnit')}</Text>
+              </View>
+            </ScrollView>
 
             <TouchableOpacity style={styles.saveRateBtn} onPress={handleSaveRates}>
-              <Text style={styles.saveRateBtnText}>दरें सुरक्षित करें (Save Rates)</Text>
+              <Text style={styles.saveRateBtnText}>{t('saveRatesBtn')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -842,13 +1085,17 @@ export const SettingsActivityScreen = ({ navigation }) => {
           onPress={() => setActiveModal(null)}
         >
           <View style={styles.modalCardCenter}>
-            <Text style={styles.modalTitle}>🎙️ Voice and Audio Settings</Text>
-            <Text style={styles.modalSubtitle}>चक्की साउंड बॉक्स व आवाज अलर्ट</Text>
+            <Text style={styles.modalTitle}>{t('voiceModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>{t('voiceModalSub')}</Text>
 
             <View style={styles.voiceToggleRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.voiceToggleLabel}>आवाज से भुगतान अलर्ट</Text>
-                <Text style={styles.voiceToggleSub}>नकद या उधार पर आवाज में बोलना</Text>
+                <Text style={styles.voiceToggleLabel}>
+                  {language === 'hi' ? 'आवाज से भुगतान अलर्ट' : 'Voice Payment Alerts'}
+                </Text>
+                <Text style={styles.voiceToggleSub}>
+                  {language === 'hi' ? 'नकद या उधार पर आवाज में बोलना' : 'Voice announcements on cash or credit'}
+                </Text>
               </View>
               <TouchableOpacity
                 style={[
@@ -857,22 +1104,24 @@ export const SettingsActivityScreen = ({ navigation }) => {
                 ]}
                 onPress={() => setVoiceAlertsOn(!voiceAlertsOn)}
               >
-                <Text style={styles.togglePillText}>{voiceAlertsOn ? 'चालू' : 'बंद'}</Text>
+                <Text style={styles.togglePillText}>
+                  {voiceAlertsOn ? (language === 'hi' ? 'चालू' : 'ON') : (language === 'hi' ? 'बंद' : 'OFF')}
+                </Text>
               </TouchableOpacity>
             </View>
 
             <TouchableOpacity
               style={styles.testVoiceBtn}
-              onPress={() => SpeechService.speak('रामलाल से 100 रुपये नकद प्राप्त हुए।')}
+              onPress={() => SpeechService.speak(language === 'hi' ? 'रामलाल से 100 रुपये नकद प्राप्त हुए।' : 'Received 100 rupees cash from Ramlal.')}
             >
-              <Text style={styles.testVoiceBtnText}>🔊 आवाज चेक करें (Test Sound)</Text>
+              <Text style={styles.testVoiceBtnText}>{t('testSoundBtn')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setActiveModal(null)}
             >
-              <Text style={styles.modalCloseBtnText}>बंद करें</Text>
+              <Text style={styles.modalCloseBtnText}>{t('closeBtn')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -890,26 +1139,141 @@ export const SettingsActivityScreen = ({ navigation }) => {
           activeOpacity={1}
           onPress={() => setActiveModal(null)}
         >
-          <View style={styles.modalCard}>
+          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>🛡️ Security & App MPIN</Text>
-            <Text style={styles.modalSubtitle}>4-अंकीय सुरक्षा पिन सेट करें</Text>
+            <Text style={styles.modalTitle}>{t('securityModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>
+              {pinStep === 'OLD_PIN'
+                ? (language === 'hi' ? 'सुरक्षा PIN बदलें (स्टेप 1: पुराना PIN सत्यापन)' : 'Change Security PIN (Step 1: Old PIN)')
+                : (language === 'hi' ? 'नया सुरक्षा PIN सेट करें (स्टेप 2)' : 'Set New Security PIN (Step 2)')}
+            </Text>
 
-            <Text style={styles.rateLabel}>नया 4-अंकीय PIN दर्ज करें:</Text>
-            <TextInput
-              style={styles.pinInputField}
-              keyboardType="numeric"
-              maxLength={4}
-              secureTextEntry
-              placeholder="••••"
-              placeholderTextColor="#94A3B8"
-              value={newPin}
-              onChangeText={setNewPin}
-            />
+            {/* Error Message Banner */}
+            {pinError ? (
+              <View style={styles.pinErrorBanner}>
+                <Text style={styles.pinErrorText}>⚠️ {pinError}</Text>
+              </View>
+            ) : null}
 
-            <TouchableOpacity style={styles.saveRateBtn} onPress={handleSavePin}>
-              <Text style={styles.saveRateBtnText}>PIN सुरक्षित करें (Save PIN)</Text>
-            </TouchableOpacity>
+            {pinStep === 'OLD_PIN' ? (
+              /* ================= STEP 1: VERIFY OLD PIN ================= */
+              <View>
+                <View style={styles.pinStepBadgeRow}>
+                  <View style={[styles.stepDot, styles.stepDotActive]} />
+                  <Text style={styles.stepBadgeText}>
+                    {language === 'hi' ? 'चरण 1 / 2 (पुराना PIN)' : 'Step 1 / 2 (Old PIN)'}
+                  </Text>
+                  <View style={[styles.stepDot, styles.stepDotInactive]} />
+                </View>
+
+                <Text style={styles.rateLabel}>{t('verifyOldPinStep')}</Text>
+                <TextInput
+                  style={[styles.pinInputField, pinError ? styles.pinInputFieldError : null]}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  secureTextEntry
+                  placeholder="••••"
+                  placeholderTextColor="#94A3B8"
+                  value={oldPin}
+                  onChangeText={(val) => {
+                    setOldPin(val);
+                    if (pinError) setPinError('');
+                  }}
+                  autoFocus
+                />
+
+                <TouchableOpacity
+                  style={styles.forgotPinLink}
+                  onPress={handleForgotOldPin}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.forgotPinLinkText}>
+                    {language === 'hi' ? '🔑 पुराना PIN याद नहीं? OTP द्वारा बदलें' : '🔑 Forgot PIN? Reset via OTP'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.saveRateBtn, pinLoading && { opacity: 0.7 }]}
+                  onPress={handleVerifyOldPin}
+                  disabled={pinLoading}
+                >
+                  {pinLoading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.saveRateBtnText}>{t('verifyOldPinBtn')} ➔</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* ================= STEP 2: SET NEW PIN ================= */
+              <View>
+                <View style={styles.pinStepBadgeRow}>
+                  <View style={[styles.stepDot, styles.stepDotDone]} />
+                  <Text style={[styles.stepBadgeText, { color: '#059669' }]}>
+                    {t('oldPinVerifiedBadge')}
+                  </Text>
+                  <View style={[styles.stepDot, styles.stepDotActive]} />
+                </View>
+
+                <Text style={styles.rateLabel}>{t('enterNewPinStep')}</Text>
+                <TextInput
+                  style={styles.pinInputField}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  secureTextEntry
+                  placeholder="••••"
+                  placeholderTextColor="#94A3B8"
+                  value={newPin}
+                  onChangeText={(val) => {
+                    setNewPin(val);
+                    if (pinError) setPinError('');
+                  }}
+                  autoFocus
+                />
+
+                <Text style={[styles.rateLabel, { marginTop: 12 }]}>
+                  {t('confirmNewPinStep')}
+                </Text>
+                <TextInput
+                  style={styles.pinInputField}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  secureTextEntry
+                  placeholder="••••"
+                  placeholderTextColor="#94A3B8"
+                  value={confirmPin}
+                  onChangeText={(val) => {
+                    setConfirmPin(val);
+                    if (pinError) setPinError('');
+                  }}
+                />
+
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                  <TouchableOpacity
+                    style={[styles.saveRateBtn, { flex: 1, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#CBD5E1' }]}
+                    onPress={() => {
+                      setPinStep('OLD_PIN');
+                      setPinError('');
+                    }}
+                    disabled={pinLoading}
+                  >
+                    <Text style={[styles.saveRateBtnText, { color: '#475569' }]}>{t('backBtn')}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.saveRateBtn, { flex: 2 }, pinLoading && { opacity: 0.7 }]}
+                    onPress={handleSaveNewPin}
+                    disabled={pinLoading}
+                  >
+                    {pinLoading ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={styles.saveRateBtnText}>{t('savePinBtn')}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -927,22 +1291,22 @@ export const SettingsActivityScreen = ({ navigation }) => {
           onPress={() => setActiveModal(null)}
         >
           <View style={styles.modalCardCenter}>
-            <Text style={styles.modalTitle}>⭐ Chakki Premium</Text>
-            <Text style={styles.modalSubtitle}>स्मार्ट चक्की वीआईपी फीचर्स</Text>
+            <Text style={styles.modalTitle}>{t('premiumModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>{t('premiumModalSub')}</Text>
 
             <View style={styles.planCard}>
-              <Text style={styles.planBadge}>वर्तमान स्थिति: निःशुल्क (Free Plan)</Text>
-              <Text style={styles.planFeatureText}>• असीमित ग्राहक बही-खाता</Text>
-              <Text style={styles.planFeatureText}>• ऑटोमैटिक WhatsApp रसीद</Text>
-              <Text style={styles.planFeatureText}>• AI वॉइस सर्च व साउंड अलर्ट</Text>
-              <Text style={styles.planFeatureText}>• ब्लूटूथ थर्मल प्रिंटर सपोर्ट</Text>
+              <Text style={styles.planBadge}>{t('currentPlanBadge')}</Text>
+              <Text style={styles.planFeatureText}>{t('premiumF1')}</Text>
+              <Text style={styles.planFeatureText}>{t('premiumF2')}</Text>
+              <Text style={styles.planFeatureText}>{t('premiumF3')}</Text>
+              <Text style={styles.planFeatureText}>{t('premiumF4')}</Text>
             </View>
 
             <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setActiveModal(null)}
             >
-              <Text style={styles.modalCloseBtnText}>ठीक है</Text>
+              <Text style={styles.modalCloseBtnText}>{t('okBtn')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -961,23 +1325,23 @@ export const SettingsActivityScreen = ({ navigation }) => {
           onPress={() => setActiveModal(null)}
         >
           <View style={styles.modalCardCenter}>
-            <Text style={styles.modalTitle}>💬 SMS Alerts Package</Text>
-            <Text style={styles.modalSubtitle}>ग्राहकों को ऑटो SMS सूचना</Text>
+            <Text style={styles.modalTitle}>{t('smsModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>{t('smsModalSub')}</Text>
 
             <View style={[styles.planCard, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
               <Text style={[styles.planBadge, { color: '#16A34A' }]}>
-                पैकेज स्थिति: सक्रिय (Active)
+                {t('smsPackageStatus')}
               </Text>
-              <Text style={styles.planFeatureText}>• शेष SMS क्रेडिट: 350 SMS</Text>
-              <Text style={styles.planFeatureText}>• पिसाई तैयार होने पर ऑटो SMS</Text>
-              <Text style={styles.planFeatureText}>• उधारी तकादा SMS अलर्ट</Text>
+              <Text style={styles.planFeatureText}>{t('smsRemainingCredits')}</Text>
+              <Text style={styles.planFeatureText}>{t('smsF1')}</Text>
+              <Text style={styles.planFeatureText}>{t('smsF2')}</Text>
             </View>
 
             <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setActiveModal(null)}
             >
-              <Text style={styles.modalCloseBtnText}>बंद करें</Text>
+              <Text style={styles.modalCloseBtnText}>{t('closeBtn')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -996,7 +1360,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
           onPress={() => setActiveModal(null)}
         >
           <View style={styles.modalCardCenter}>
-            <Text style={styles.modalTitle}>🌐 भाषा चुनें (Select Language)</Text>
+            <Text style={styles.modalTitle}>{t('selectLanguageModalTitle')}</Text>
 
             <TouchableOpacity
               style={[styles.langOptionBtn, language === 'hi' && styles.langOptionActive]}
@@ -1006,7 +1370,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
               }}
             >
               <Text style={[styles.langText, language === 'hi' && styles.langTextActive]}>
-                हिंदी (Hindi)
+                {t('langHindi')}
               </Text>
               {language === 'hi' && <Text style={styles.langCheck}>✓</Text>}
             </TouchableOpacity>
@@ -1019,7 +1383,7 @@ export const SettingsActivityScreen = ({ navigation }) => {
               }}
             >
               <Text style={[styles.langText, language === 'en' && styles.langTextActive]}>
-                English (अंग्रेजी)
+                {t('langEnglish')}
               </Text>
               {language === 'en' && <Text style={styles.langCheck}>✓</Text>}
             </TouchableOpacity>
@@ -1040,22 +1404,22 @@ export const SettingsActivityScreen = ({ navigation }) => {
           onPress={() => setActiveModal(null)}
         >
           <View style={styles.modalCardCenter}>
-            <Text style={styles.modalTitle}>ℹ️ About Chakki Smart AI</Text>
-            <Text style={styles.modalSubtitle}>किसान साथी • चक्की प्रबंधन प्रणाली</Text>
+            <Text style={styles.modalTitle}>{t('aboutModalTitle')}</Text>
+            <Text style={styles.modalSubtitle}>{t('aboutModalSub')}</Text>
 
             <View style={{ marginVertical: 12 }}>
-              <Text style={styles.aboutRow}>• ऐप वर्जन: 1.2.0 (Stable Release)</Text>
-              <Text style={styles.aboutRow}>• चक्की: {currentUser?.profile?.chakkiName || 'Chakki Smart AI'}</Text>
-              <Text style={styles.aboutRow}>• संचालक: {ownerDisplayName}</Text>
-              <Text style={styles.aboutRow}>• बैकएंड: Node.js Express & MongoDB</Text>
-              <Text style={styles.aboutRow}>• भारत में निर्मित 🇮🇳</Text>
+              <Text style={styles.aboutRow}>{t('aboutVersionRow')}</Text>
+              <Text style={styles.aboutRow}>{t('aboutMillRow')} {currentUser?.profile?.chakkiName || 'Chakki Smart AI'}</Text>
+              <Text style={styles.aboutRow}>{t('aboutOperatorRow')} {ownerDisplayName}</Text>
+              <Text style={styles.aboutRow}>{t('aboutBackendRow')}</Text>
+              <Text style={styles.aboutRow}>{t('aboutMadeInIndia')}</Text>
             </View>
 
             <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setActiveModal(null)}
             >
-              <Text style={styles.modalCloseBtnText}>बंद करें</Text>
+              <Text style={styles.modalCloseBtnText}>{t('closeBtn')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1261,6 +1625,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 22,
+    maxHeight: '90%',
     elevation: 10,
   },
   modalCardCenter: {
@@ -1417,6 +1782,64 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontWeight: '900',
     color: '#0F172A',
+  },
+  pinInputFieldError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FFF5F5',
+  },
+  pinErrorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  pinErrorText: {
+    color: '#DC2626',
+    fontSize: 12.5,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  pinStepBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  stepDotActive: {
+    backgroundColor: '#0F5132',
+  },
+  stepDotInactive: {
+    backgroundColor: '#CBD5E1',
+  },
+  stepDotDone: {
+    backgroundColor: '#059669',
+  },
+  stepBadgeText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0F5132',
+  },
+  forgotPinLink: {
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  forgotPinLinkText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0284C7',
+    textDecorationLine: 'underline',
   },
 
   /* Plan Card */

@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import LottieView from 'lottie-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const chakkiLottieAnim = require('../../assets/animations/aata_chakki_scanned_hd_1080p.json');
 const deliveryVideoAnim = require('../../assets/animations/chakki_delivery_video_hd.json');
+const oilExpellerAnim = require('../../assets/animations/oil_expeller_hd_lottie.json');
 
 const SCROLL_INTERVAL = 5000; // Auto-scroll every 5 seconds per user specification
 
@@ -35,7 +37,7 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
   const goToSlide = (slideIndex) => {
     try {
       Haptics.selectionAsync();
-    } catch (e) {}
+    } catch (e) { }
     setActiveSlide(slideIndex);
     Animated.timing(slideAnim, {
       toValue: slideIndex,
@@ -45,11 +47,11 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
     }).start();
   };
 
-  // Auto-scroll every 5 seconds (5000ms)
+  // Auto-scroll every 5 seconds (5000ms) across all 3 banners
   useEffect(() => {
     const scrollTimer = setInterval(() => {
       setActiveSlide((prev) => {
-        const next = (prev + 1) % 2;
+        const next = (prev + 1) % 3;
         Animated.timing(slideAnim, {
           toValue: next,
           duration: 550,
@@ -78,7 +80,7 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
   const handlePressSlide0 = () => {
     try {
       Haptics.selectionAsync();
-    } catch (e) {}
+    } catch (e) { }
     if (onPressRate) {
       onPressRate();
     }
@@ -87,10 +89,19 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
   const handlePressSlide1 = () => {
     try {
       Haptics.selectionAsync();
-    } catch (e) {}
+    } catch (e) { }
     if (onPressDelivery) {
       onPressDelivery();
     } else if (onPressRate) {
+      onPressRate();
+    }
+  };
+
+  const handlePressSlide2 = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (e) { }
+    if (onPressRate) {
       onPressRate();
     }
   };
@@ -107,13 +118,13 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
         style={[
           styles.slidesTrack,
           {
-            width: bannerW * 2,
+            width: bannerW * 3,
             height: bannerH,
             transform: [
               {
                 translateX: slideAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, -bannerW],
+                  inputRange: [0, 1, 2],
+                  outputRange: [0, -bannerW, -bannerW * 2],
                 }),
               },
             ],
@@ -223,6 +234,53 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
             </Text>
           </View>
         </TouchableOpacity>
+
+        {/* ========================================================= */}
+        {/* SLIDE 2: 100% 3D शुद्ध तेल पिराई (Complete 3D Oil Expeller) */}
+        {/* ========================================================= */}
+        <TouchableOpacity
+          style={[styles.slideContainer, { width: bannerW, height: bannerH, backgroundColor: '#EFFAF0' }]}
+          activeOpacity={0.92}
+          onPress={handlePressSlide2}
+        >
+          {/* Right Side: Complete 3D Oil Expeller Running Machine (Uncropped, Fixed Perspective) */}
+          <View style={[styles.oilExpellerContainer, { width: Math.round(bannerW * 0.65), height: bannerH }]} pointerEvents="none">
+            <LottieView
+              source={oilExpellerAnim}
+              autoPlay={true}
+              loop={true}
+              style={styles.oilExpellerAnim}
+              resizeMode="contain"
+            />
+          </View>
+
+          {/* Left Side: Clearly readable Native Hindi Text for Oil Extraction */}
+          <View style={styles.leftContentOverlay}>
+            <View style={styles.oilBadge}>
+              <Text style={styles.oilBadgeText}>💧 शुद्ध तेल पिराई</Text>
+            </View>
+
+            <Text style={[styles.mainHeading, styles.oilHeading]} numberOfLines={2}>
+              शुद्ध सरसों तेल,{'\n'}कोल्हू जैसी पिराई!
+            </Text>
+
+            <Text style={[styles.subtitleText, styles.oilSubtitle]} numberOfLines={2}>
+              कच्ची घानी शुद्धता, 100% नेचुरल ताज़ा तेल
+            </Text>
+
+            <TouchableOpacity
+              style={styles.oilButton}
+              activeOpacity={0.8}
+              onPress={handlePressSlide2}
+            >
+              <Text style={styles.oilButtonText}>पिराई रेट देखें →</Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.footerNoteText, styles.oilFooter]}>
+              आपकी चक्की, आपका भरोसा
+            </Text>
+          </View>
+        </TouchableOpacity>
       </Animated.View>
 
       {/* Slide Pagination Dots (Interactive + Auto 5s Sync) */}
@@ -238,6 +296,12 @@ export const ChakkiPromoBanner = ({ onPressRate, onPressDelivery }) => {
           onPress={() => goToSlide(1)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={[styles.dot, activeSlide === 1 ? styles.activeDotBlue : styles.inactiveDot]}
+        />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => goToSlide(2)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.dot, activeSlide === 2 ? styles.activeDotAmber : styles.inactiveDot]}
         />
       </View>
     </View>
@@ -434,5 +498,64 @@ const styles = StyleSheet.create({
   activeDotBlue: {
     width: 16,
     backgroundColor: '#2563EB',
+  },
+  activeDotAmber: {
+    width: 16,
+    backgroundColor: '#15803D',
+  },
+
+  /* Slide 2: 100% 3D Oil Expeller (Uncropped & Steady) */
+  oilExpellerContainer: {
+    position: 'absolute',
+    right: -10,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  oilExpellerAnim: {
+    width: 260,
+    height: 260,
+  },
+  oilBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#15803D',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3.5,
+  },
+  oilBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  oilHeading: {
+    color: '#142911',
+  },
+  oilSubtitle: {
+    color: '#264424',
+    fontWeight: '600',
+  },
+  oilButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#15803D',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 5.5,
+    elevation: 2,
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+  },
+  oilButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  oilFooter: {
+    color: '#264424',
   },
 });

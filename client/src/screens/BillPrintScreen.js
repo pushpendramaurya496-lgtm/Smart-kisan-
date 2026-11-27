@@ -4,8 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Colors } from '../constants/colors';
 import { SpeechService } from '../services/speechService';
+import { useChakki } from '../context/ChakkiContext';
 
 export const BillPrintScreen = ({ navigation, route }) => {
+  const { language, currentUser } = useChakki();
   const insets = useSafeAreaInsets();
   const topSafePadding = Math.max(insets.top, 44);
 
@@ -22,10 +24,11 @@ export const BillPrintScreen = ({ navigation, route }) => {
   })();
 
   const billData = {
-    millName: entry.millName || 'Chakki Smart AI',
+    millName: currentUser?.profile?.chakkiName || entry.millName || 'Chakki Smart AI',
     millTagline: entry.millTagline || 'आटा चक्की एवं मिल',
+    millPhone: currentUser?.phone || '',
     customerName: entry.customerName || entry.name || 'ग्राहक',
-    item: entry.item || (entry.cropType === 'OIL' ? 'सरसों (तेल)' : entry.cropType === 'MASALA' ? 'मसाला (कुटाई)' : 'गेहूं (पिसाई)'),
+    item: entry.itemLabel || entry.item || (entry.cropType === 'OIL' ? 'सरसों (तेल)' : entry.cropType === 'MASALA' ? 'मसाला पिसाई' : 'गेहूं (पिसाई)'),
     weightKg: entry.weightKg !== undefined ? entry.weightKg : (entry.weight !== undefined ? entry.weight : 0),
     ratePerKg: entry.ratePerKg !== undefined ? entry.ratePerKg : (entry.rate !== undefined ? entry.rate : 0),
     totalAmount: entry.totalAmount !== undefined ? entry.totalAmount : (entry.total !== undefined ? entry.total : 0),
@@ -68,7 +71,7 @@ export const BillPrintScreen = ({ navigation, route }) => {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
             <Text style={styles.backText}>◀</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>बिल प्रिंट / शेयर करें</Text>
+          <Text style={styles.headerTitle}>{language === 'hi' ? 'बिल प्रिंट / शेयर करें' : 'Print / Share Bill'}</Text>
           <View style={{ width: 36 }} />
         </View>
 
@@ -77,28 +80,33 @@ export const BillPrintScreen = ({ navigation, route }) => {
           <View style={styles.millHeader}>
             <Text style={styles.millLogo}>🌾 {billData.millName}</Text>
             <Text style={styles.millSub}>{billData.millTagline}</Text>
+            {Boolean(billData.millPhone) && (
+              <Text style={[styles.millSub, { marginTop: 2, fontWeight: '700' }]}>
+                📞 मो: +91 {billData.millPhone}
+              </Text>
+            )}
           </View>
 
           <View style={styles.dashedDivider} />
 
           <View style={styles.billDetails}>
             <View style={styles.detailRow}>
-              <Text style={styles.fieldLabel}>ग्राहक का नाम</Text>
+              <Text style={styles.fieldLabel}>{language === 'hi' ? 'ग्राहक का नाम' : 'Customer Name'}</Text>
               <Text style={styles.fieldValue}>: {billData.customerName}</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <Text style={styles.fieldLabel}>सामान</Text>
+              <Text style={styles.fieldLabel}>{language === 'hi' ? 'सामान' : 'Item'}</Text>
               <Text style={styles.fieldValue}>: {billData.item}</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <Text style={styles.fieldLabel}>वजन</Text>
+              <Text style={styles.fieldLabel}>{language === 'hi' ? 'वजन' : 'Weight'}</Text>
               <Text style={styles.fieldValue}>: {billData.weightKg} kg</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <Text style={styles.fieldLabel}>रेट</Text>
+              <Text style={styles.fieldLabel}>{language === 'hi' ? 'रेट' : 'Rate'}</Text>
               <Text style={styles.fieldValue}>: ₹{billData.ratePerKg} / kg</Text>
             </View>
 
@@ -106,13 +114,13 @@ export const BillPrintScreen = ({ navigation, route }) => {
 
             {/* Total Row: 100 in RED with 'बाकी' beside it */}
             <View style={[styles.detailRow, styles.totalRow]}>
-              <Text style={styles.totalLabel}>कुल राशि</Text>
+              <Text style={styles.totalLabel}>{language === 'hi' ? 'कुल राशि' : 'Total Amount'}</Text>
               <Text style={styles.totalValueRed}>
-                : ₹{billData.totalAmount} <Text style={styles.baakiBadge}>(बाकी)</Text>
+                : ₹{billData.totalAmount} <Text style={styles.baakiBadge}>{language === 'hi' ? '(बाकी)' : '(Due)'}</Text>
               </Text>
             </View>
 
-            <Text style={styles.dateText}>दिनांक : {billData.date}</Text>
+            <Text style={styles.dateText}>{language === 'hi' ? 'दिनांक' : 'Date'} : {billData.date}</Text>
           </View>
 
           {/* Official Stamp Box matching Photo 2 */}
@@ -129,7 +137,7 @@ export const BillPrintScreen = ({ navigation, route }) => {
             onPress={handleWhatsAppShare}
           >
             <Text style={styles.actionIcon}>💬</Text>
-            <Text style={styles.whatsappBtnText}>WhatsApp से भेजें</Text>
+            <Text style={styles.whatsappBtnText}>{language === 'hi' ? 'WhatsApp से भेजें' : 'Send via WhatsApp'}</Text>
           </TouchableOpacity>
 
           <View style={styles.printRow}>
@@ -139,7 +147,7 @@ export const BillPrintScreen = ({ navigation, route }) => {
               onPress={handlePrint}
             >
               <Text style={styles.actionIcon}>🖨️</Text>
-              <Text style={styles.printBtnText}>प्रिंट करें</Text>
+              <Text style={styles.printBtnText}>{language === 'hi' ? 'प्रिंट करें' : 'Print Bill'}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

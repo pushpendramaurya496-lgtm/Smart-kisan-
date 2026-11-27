@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useChakki } from '../context/ChakkiContext';
 
 // Pixel-Perfect Vector Icons Matching Reference Screenshot
 const HouseIcon = ({ color, size = 22 }) => (
@@ -220,13 +221,14 @@ const HistoryIcon = ({ color, size = 22 }) => (
 export const BottomDock = ({ activeTab = 'home', onTabPress, backgroundColor = null }) => {
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom || 0, 8);
+  const { t } = useChakki();
 
   const tabs = [
-    { id: 'home', label: 'Home', icon: HouseIcon },
-    { id: 'khata', label: 'Customer', icon: UsersIcon },
-    { id: 'bill', label: 'Bill', icon: BillIcon },
-    { id: 'history', label: 'History', icon: HistoryIcon },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon },
+    { id: 'home', label: t('tabHome'), icon: HouseIcon },
+    { id: 'khata', label: t('tabCustomer'), icon: UsersIcon },
+    { id: 'bill', label: t('tabBill'), icon: BillIcon },
+    { id: 'history', label: t('tabHistory'), icon: HistoryIcon },
+    { id: 'settings', label: t('tabSettings'), icon: SettingsIcon },
   ];
 
   return (

@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useChakki } from '../context/ChakkiContext';
 import { StatWheat, StatUsers, StatRupee, StatGear } from './illustrations/AppIllustrations';
 
 export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPress, onPendingBalancePress }) => {
+  const { t } = useChakki();
   const pisaiKg = stats.todayPisaiKg ?? 0;
   const customers = stats.totalCustomers ?? 0;
   const pendingFormatted = Number(stats.pendingDebt ?? 0).toLocaleString('en-IN');
@@ -22,7 +24,7 @@ export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPres
           <StatWheat size={38} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.label}>Today's Milling</Text>
+          <Text style={styles.label}>{t('todayPisai')}</Text>
           <Text style={[styles.value, styles.greenValue]}>{pisaiKg} kg</Text>
         </View>
       </TouchableOpacity>
@@ -39,7 +41,7 @@ export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPres
           <StatUsers size={38} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.label}>Total Customers</Text>
+          <Text style={styles.label}>{t('totalCustomers')}</Text>
           <Text style={[styles.value, styles.navyValue]}>{customers}</Text>
         </View>
       </TouchableOpacity>
@@ -56,7 +58,7 @@ export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPres
           <StatRupee size={38} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.label}>Pending Balance</Text>
+          <Text style={styles.label}>{t('pendingDebt')}</Text>
           <Text style={[styles.value, styles.redValue]}>₹ {pendingFormatted}</Text>
         </View>
       </TouchableOpacity>
@@ -67,7 +69,7 @@ export const StatGrid = ({ stats = {}, onTodayMillingPress, onTotalCustomersPres
           <StatGear size={38} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.label}>Total Expense</Text>
+          <Text style={styles.label}>{t('totalExpense')}</Text>
           <Text style={[styles.value, styles.navyValue]}>₹ {expenseFormatted}</Text>
         </View>
       </View>

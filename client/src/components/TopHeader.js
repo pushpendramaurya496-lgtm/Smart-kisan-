@@ -5,7 +5,7 @@ import { useChakki } from '../context/ChakkiContext';
 const farmerProfileImg = require('../../assets/icons/farmer_profile.png');
 
 export const TopHeader = ({ onProfilePress }) => {
-  const { currentUser } = useChakki();
+  const { currentUser, t } = useChakki();
   const profileImage = currentUser?.profile?.profileImage || null;
 
   return (
@@ -19,8 +19,8 @@ export const TopHeader = ({ onProfilePress }) => {
 
         {/* Typography */}
         <View style={styles.titleColumn}>
-          <Text style={styles.mainTitle}>Kisan Sathi</Text>
-          <Text style={styles.subtitle}>Empowering Farmers, Enriching India</Text>
+          <Text style={styles.mainTitle}>{t('appName')}</Text>
+          <Text style={styles.subtitle}>{t('tagline')}</Text>
         </View>
       </View>
 
